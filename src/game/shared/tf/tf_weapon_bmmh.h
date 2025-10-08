@@ -38,7 +38,7 @@ public:
 	CTFBMMH();
 	~CTFBMMH() {}
 
-	virtual int		GetWeaponID( void ) const			{ return TF_WEAPON_PIPEBOMBLAUNCHER; }
+	virtual int		GetWeaponID( void ) const			{ return TF_WEAPON_DISPENSER_GUN; }
 	virtual int		GetAmmoPerShot()					{ return RemapValClamped(gpGlobals->curtime - GetInternalChargeBeginTime(), 0, GetChargeMaxTime(), 0, 100 ); }
 
 	CTFBMMH( const CTFBMMH & ) {}

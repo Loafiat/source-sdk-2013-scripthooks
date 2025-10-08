@@ -718,6 +718,24 @@
 			}
 			"visuals"
 			{
+				"styles"
+				{
+					"0"
+					{
+						"skin_red"	"0"
+						"skin_blu"	"1"
+						"selectable"	"0"
+					}
+					"1"
+					{
+						"skin_red"	"8"
+						"skin_blu"	"9"
+						"v_skin_red"	"8"
+						"v_skin_blu"	"9"
+						"selectable"	"0"
+						"image_inventory"	"backpack/weapons/w_models/w_sniperrifle_gold"
+					}
+				}
 				"attached_models_festive"
 				{
 					"0"

@@ -78,10 +78,10 @@ void CTFFireAxe::StartClientEffects( void )
 	StopClientEffects();
 
 	C_TFPlayer *pOwner = GetTFPlayerOwner();
-	
-	if ( !pOwner )
+
+	if ( !pOwner || pOwner->m_Shared.IsStealthed() || !GetOwner() || GetOwner()->GetActiveWeapon() != this )
 		return;
-	
+
 	const char *pszParticleEffect = NULL;
 	const char *pszAttachmentName = NULL;
 

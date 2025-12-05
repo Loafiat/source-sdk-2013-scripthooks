@@ -19810,7 +19810,7 @@ void CTFPlayer::Taunt( taunts_t iTauntIndex, int iTauntConcept )
 				m_iTauntAttack = TAUNTATK_HEAVY_RADIAL_BUFF;
 			}
 			else {
-				m_flTauntAttackTime = gpGlobals->curtime + 1.36f;
+				m_flTauntAttackTime = gpGlobals->curtime + 1.37f;
 				m_iTauntAttack = TAUNTATK_HEAVY_PUNCHOUT_A;
 			}
 		}
@@ -20265,7 +20265,7 @@ void CTFPlayer::DoTauntAttack( void )
 				}
 				else if (iTauntAttack == TAUNTATK_HEAVY_PUNCHOUT_KILL)
 				{
-					pList[i]->TakeDamage(CTakeDamageInfo(this, this, GetActiveTFWeapon(), vecForward * 25000, vecPos, 400.0f, DMG_CLUB, TF_DMG_CUSTOM_TAUNTATK_PUNCHOUT));
+					pList[i]->TakeDamage(CTakeDamageInfo(this, this, GetActiveTFWeapon(), vecForward * 27500, vecPos, 400.0f, DMG_CLUB, TF_DMG_CUSTOM_TAUNTATK_PUNCHOUT));
 					EmitSound( "Weapon_BoxingGloves.CritHit");
 				}
 			}
@@ -20284,12 +20284,12 @@ void CTFPlayer::DoTauntAttack( void )
 		else if (iTauntAttack == TAUNTATK_HEAVY_PUNCHOUT_A)
 		{
 			m_iTauntAttack = TAUNTATK_HEAVY_PUNCHOUT_B;
-			m_flTauntAttackTime = gpGlobals->curtime + 0.76f;
+			m_flTauntAttackTime = gpGlobals->curtime + 0.8f;
 		}
 		else if (iTauntAttack == TAUNTATK_HEAVY_PUNCHOUT_B)
 		{
 			m_iTauntAttack = TAUNTATK_HEAVY_PUNCHOUT_C;
-			m_flTauntAttackTime = gpGlobals->curtime + 0.8f;
+			m_flTauntAttackTime = gpGlobals->curtime + 0.77f;
 		}
 		else if (iTauntAttack == TAUNTATK_HEAVY_PUNCHOUT_C)
 		{

@@ -723,6 +723,8 @@ $Project "Client (TF)"
 				$File	"$SRCDIR\game\client\tf\cf_workshop_panel.cpp"
 				$File	"$SRCDIR\game\client\tf\cf_workshop_weapon_tool.h"
 				$File	"$SRCDIR\game\client\tf\cf_workshop_weapon_tool.cpp"
+				$File	"$SRCDIR\game\client\tf\cf_workshop_cosmetic_tool.h"
+				$File	"$SRCDIR\game\client\tf\cf_workshop_cosmetic_tool.cpp"
 			}
 
 			$Folder	"vgui"

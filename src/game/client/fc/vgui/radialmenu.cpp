@@ -1421,7 +1421,7 @@ void OpenRadialMenu( const char *menuName )
 		FlushClientMenus(); // for now, reload every time
 	}
 
-	KeyValues *menuKey = TheClientMenuManager.FindMenu( NULL );
+	KeyValues *menuKey = TheClientMenuManager.FindMenu( menuName );
 	if ( !menuKey )
 	{
 		//DevMsg( "No client menu currently matches %s\n", menuName );

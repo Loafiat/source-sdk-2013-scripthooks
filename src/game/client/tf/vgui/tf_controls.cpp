@@ -32,10 +32,87 @@
 #include "filesystem.h"
 #include "hud_controlpointicons.h"
 #include "tf_statsummary.h"
+#include "steam/steam_api.h"
+#include "cf_workshop_manager.h"
+#include "workshop/ugc_utils.h"
+#include "utlbuffer.h"
+#include "imageutils.h"
+
+#ifdef _WIN32
+#include <windows.h>
+// Undefine Windows macros that conflict with VGUI
+#undef PostMessage
+#undef CreateDialog
+#endif
 
 ConVar cl_map("cl_map", "-1");
 
 using namespace vgui;
+
+//-----------------------------------------------------------------------------
+// CMapPreviewImage - Simple IImage wrapper for workshop map preview textures
+//-----------------------------------------------------------------------------
+CMapPreviewImage::CMapPreviewImage()
+	: m_nTextureID(-1)
+	, m_nX(0)
+	, m_nY(0)
+	, m_nWide(0)
+	, m_nTall(0)
+	, m_nImageWidth(0)
+	, m_nImageHeight(0)
+	, m_bValid(false)
+{
+	m_Color = Color(255, 255, 255, 255);
+}
+
+CMapPreviewImage::~CMapPreviewImage()
+{
+	Clear();
+}
+
+void CMapPreviewImage::SetTextureRGBA(const byte* rgba, int width, int height)
+{
+	if (!rgba || width <= 0 || height <= 0)
+		return;
+	
+	if (m_nTextureID == -1)
+	{
+		m_nTextureID = surface()->CreateNewTextureID(true);
+	}
+	
+	surface()->DrawSetTextureRGBAEx(m_nTextureID, rgba, width, height, IMAGE_FORMAT_RGBA8888);
+	
+	m_nImageWidth = width;
+	m_nImageHeight = height;
+	
+	// Set size to image dimensions (ImagePanel will override via SetSize when scaling)
+	m_nWide = width;
+	m_nTall = height;
+	
+	m_bValid = true;
+}
+
+void CMapPreviewImage::Clear()
+{
+	if (m_nTextureID != -1)
+	{
+		surface()->DestroyTextureID(m_nTextureID);
+		m_nTextureID = -1;
+	}
+	m_bValid = false;
+	m_nImageWidth = 0;
+	m_nImageHeight = 0;
+}
+
+void CMapPreviewImage::Paint()
+{
+	if (!m_bValid || m_nTextureID == -1)
+		return;
+	
+	surface()->DrawSetTexture(m_nTextureID);
+	surface()->DrawSetColor(m_Color);
+	surface()->DrawTexturedRect(m_nX, m_nY, m_nX + m_nWide, m_nY + m_nTall);
+}
 
 wchar_t* LocalizeNumberWithToken( const char* pszLocToken, int nValue )
 {
@@ -3000,6 +3077,14 @@ CTFCreateServerDialog::CTFCreateServerDialog(vgui::Panel* parent) : PropertyDial
 	SetProportional(true);
 
 	m_pList = NULL;
+	m_pMapSearchEntry = NULL;
+	m_pWorkshopFilterCheck = NULL;
+	m_szLastSearchFilter[0] = '\0';
+	m_bLastWorkshopOnly = false;
+	m_hPendingPreviewRequest = INVALID_HTTPREQUEST_HANDLE;
+	m_nCurrentPreviewFileID = 0;
+	m_pWorkshopPreviewImage = new CMapPreviewImage();
+	m_nLastDisplayedMapFileID = 0;
 
 	m_pToolTip = new CTFTextToolTip(this);
 	m_pToolTipEmbeddedPanel = new vgui::EditablePanel(this, "TooltipPanel");
@@ -3023,7 +3108,7 @@ CTFCreateServerDialog::CTFCreateServerDialog(vgui::Panel* parent) : PropertyDial
 		const char *pTabName = pCurTab->GetName();
 		m_pPages.AddToTail( new vgui::PanelListPanel(this, pTabName) );
 		AddPage(m_pPages[i], pTabName);
-		DevMsg("Adding page: %s\n", pTabName);
+		Warning("Adding page: %s\n", pTabName);
 		for (KeyValues* pCurOption = pCurTab->GetFirstSubKey(); pCurOption; pCurOption = pCurOption->GetNextKey())
 		{
 			// 2nd layer: Options in tab
@@ -3073,6 +3158,7 @@ CTFCreateServerDialog::CTFCreateServerDialog(vgui::Panel* parent) : PropertyDial
 CTFCreateServerDialog::~CTFCreateServerDialog()
 {
 	delete m_pDescription;
+	delete m_pWorkshopPreviewImage;
 }
 
 //-----------------------------------------------------------------------------
@@ -3461,50 +3547,9 @@ void CTFCreateServerDialog::CreateControls()
 
 	pObj = m_pDescription->pObjList;
 
-	// Build out the maps dropdown
-	CUtlVector< CUtlString > m_vecMaps;
-	FileFindHandle_t mapHandle;
-	const char* pMapFileName = filesystem->FindFirstEx( "maps/*.bsp", "GAME", &mapHandle );
-
-	while ( pMapFileName && pMapFileName[ 0 ] != '\0' )
-	{
-		// Skip it if it's a directory or is the folder info
-		if ( filesystem->FindIsDirectory( mapHandle ) )
-		{
-			pMapFileName = filesystem->FindNext( mapHandle );
-			continue;
-		}
-
-		if ( pMapFileName )
-		{
-			char szShortName[MAX_PATH] = { 0 };
-			V_strncpy( szShortName, pMapFileName, sizeof( szShortName ) );
-			V_StripExtension( szShortName, szShortName, sizeof( szShortName ) );
-
-			if ( m_vecMaps.Find( szShortName ) == m_vecMaps.InvalidIndex() )
-			{
-				m_vecMaps.AddToTail( szShortName );
-				//DevMsg( "Adding Map: '%s' to list\n", szShortName );
-			}
-		}
-
-		pMapFileName = filesystem->FindNext( mapHandle );
-	}
-
-	filesystem->FindClose( mapHandle );
-
-	CScriptObject *pMapInfoObj = m_pDescription->FindObject( "cl_map" );
-	if ( pMapInfoObj )
-	{
-		pMapInfoObj->RemoveAndDeleteAllItems();
-		int iCount = m_vecMaps.Count();
-		pMapInfoObj->AddItem( new CScriptListItem( "#GameUI_RandomMap", "-1" ) );
-		Msg("curvalue: %s\n", pMapInfoObj->curValue);
-		for ( int k = 0; k < iCount; ++ k )
-		{
-			pMapInfoObj->AddItem( new CScriptListItem( m_vecMaps[k], CFmtStr("%i", k)));
-		}
-	}
+	// Load maps and build the dropdown
+	LoadMapList();
+	RefreshMapList();
 
 	mpcontrol_t	*pCtrl;
 
@@ -3521,8 +3566,12 @@ void CTFCreateServerDialog::CreateControls()
 	vgui::HFont hTextFont = pScheme->GetFont( "HudFontSmallestBold", true );
 	Color tanDark = pScheme->GetColor( "TanDark", Color(255,0,0,255) );
 
+	Warning( "CreateControls: Starting to process objects, pObj=%p\n", pObj );
+
 	while ( pObj )
 	{
+		Warning( "CreateControls: Processing '%s' type=%d\n", pObj->cvarname, pObj->type );
+		
 		if ( pObj->type == O_OBSOLETE )
 		{
 			pObj = pObj->pNext;
@@ -3664,6 +3713,27 @@ void CTFCreateServerDialog::CreateControls()
 
 		objParentList->AddItem( NULL, pCtrl );
 
+		// Store references to the map filter controls
+		if ( !Q_stricmp( pObj->cvarname, "cl_map_search" ) && pCtrl->pControl )
+		{
+			m_pMapSearchEntry = dynamic_cast<TextEntry*>( pCtrl->pControl );
+			if ( m_pMapSearchEntry )
+			{
+				Warning( "Found map search entry: %p\n", m_pMapSearchEntry );
+				m_pMapSearchEntry->AddActionSignalTarget( this );
+				m_pMapSearchEntry->SendNewLine( true );  // Send signal on enter key
+			}
+		}
+		else if ( !Q_stricmp( pObj->cvarname, "cl_map_workshop_only" ) && pCtrl->pControl )
+		{
+			m_pWorkshopFilterCheck = dynamic_cast<CheckButton*>( pCtrl->pControl );
+			if ( m_pWorkshopFilterCheck )
+			{
+				Warning( "Found workshop filter check: %p\n", m_pWorkshopFilterCheck );
+				m_pWorkshopFilterCheck->AddActionSignalTarget( this );
+			}
+		}
+
 		// Link it in
 		if ( !m_pList )
 		{
@@ -3697,6 +3767,10 @@ void CTFCreateServerDialog::DestroyControls()
 {
 	mpcontrol_t* p, * n;
 
+	// Clear references to filter controls
+	m_pMapSearchEntry = NULL;
+	m_pWorkshopFilterCheck = NULL;
+
 	p = m_pList;
 	while (p)
 	{
@@ -3717,6 +3791,425 @@ void CTFCreateServerDialog::DestroyControls()
 	}
 
 	m_pList = NULL;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Loads all maps from disk into the map list
+//-----------------------------------------------------------------------------
+void CTFCreateServerDialog::LoadMapList()
+{
+	m_vecAllMaps.RemoveAll();
+	m_vecIsWorkshopMap.RemoveAll();
+	m_vecMapFileIDs.RemoveAll();
+
+	// Helper lambda to check if a map name already exists
+	// Compares base name (strips workshop/ prefix and .ugcXXXX suffix)
+	auto MapExists = [this]( const char* szMapName ) -> bool
+	{
+		// Extract base name from input
+		char szBaseName[MAX_PATH];
+		V_strncpy( szBaseName, szMapName, sizeof( szBaseName ) );
+		
+		// Strip workshop/ prefix if present
+		const char* pBase = szBaseName;
+		if ( V_strnicmp( pBase, "workshop/", 9 ) == 0 )
+			pBase = szBaseName + 9;
+		
+		// Strip .ugcXXXX suffix if present
+		char* pUgc = V_stristr( (char*)pBase, ".ugc" );
+		if ( pUgc )
+			*pUgc = '\0';
+		
+		FOR_EACH_VEC( m_vecAllMaps, i )
+		{
+			// Extract base name from existing entry
+			char szExistingBase[MAX_PATH];
+			V_strncpy( szExistingBase, m_vecAllMaps[i].Get(), sizeof( szExistingBase ) );
+			
+			const char* pExisting = szExistingBase;
+			if ( V_strnicmp( pExisting, "workshop/", 9 ) == 0 )
+				pExisting = szExistingBase + 9;
+			
+			char* pExistingUgc = V_stristr( (char*)pExisting, ".ugc" );
+			if ( pExistingUgc )
+				*pExistingUgc = '\0';
+			
+			if ( V_stricmp( pExisting, pBase ) == 0 )
+				return true;
+		}
+		return false;
+	};
+
+	// =====================================================
+	// FIRST: Scan workshop sources (they have proper file IDs and metadata)
+	// =====================================================
+
+#ifdef _WIN32
+	// Get workshop maps from the workshop manager
+	CUtlVector<CCFWorkshopItem*> workshopMaps;
+	CFWorkshop()->GetItemsByType( CF_WORKSHOP_TYPE_MAP, workshopMaps );
+	Warning( "LoadMapList: Workshop manager has %d map items\n", workshopMaps.Count() );
+	
+	FOR_EACH_VEC( workshopMaps, i )
+	{
+		CCFWorkshopItem* pItem = workshopMaps[i];
+		if ( pItem )
+		{
+			char szInstallPath[MAX_PATH];
+			if ( pItem->GetInstallPath( szInstallPath, sizeof( szInstallPath ) ) )
+			{
+				char szSearchPath[MAX_PATH];
+				WIN32_FIND_DATAA findData;
+				
+				// Check maps subfolder
+				V_snprintf( szSearchPath, sizeof( szSearchPath ), "%s\\maps\\*.bsp", szInstallPath );
+				HANDLE hFind = FindFirstFileA( szSearchPath, &findData );
+				if ( hFind != INVALID_HANDLE_VALUE )
+				{
+					do
+					{
+						if ( !( findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+						{
+							char szShortName[MAX_PATH] = { 0 };
+							V_snprintf( szShortName, sizeof( szShortName ), "workshop/%s", findData.cFileName );
+							V_StripExtension( szShortName, szShortName, sizeof( szShortName ) );
+							char szWithID[MAX_PATH];
+							V_snprintf( szWithID, sizeof( szWithID ), "%s.ugc%llu", szShortName, pItem->GetFileID() );
+
+							if ( !MapExists( szWithID ) )
+							{
+								m_vecAllMaps.AddToTail( szWithID );
+								m_vecIsWorkshopMap.AddToTail( true );
+								m_vecMapFileIDs.AddToTail( pItem->GetFileID() );
+								Warning( "LoadMapList: Added workshop map from manager: %s\n", szWithID );
+							}
+						}
+					} while ( FindNextFileA( hFind, &findData ) );
+					FindClose( hFind );
+				}
+				
+				// Also check root folder
+				V_snprintf( szSearchPath, sizeof( szSearchPath ), "%s\\*.bsp", szInstallPath );
+				hFind = FindFirstFileA( szSearchPath, &findData );
+				if ( hFind != INVALID_HANDLE_VALUE )
+				{
+					do
+					{
+						if ( !( findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+						{
+							char szShortName[MAX_PATH] = { 0 };
+							V_snprintf( szShortName, sizeof( szShortName ), "workshop/%s", findData.cFileName );
+							V_StripExtension( szShortName, szShortName, sizeof( szShortName ) );
+							char szWithID[MAX_PATH];
+							V_snprintf( szWithID, sizeof( szWithID ), "%s.ugc%llu", szShortName, pItem->GetFileID() );
+
+							if ( !MapExists( szWithID ) )
+							{
+								m_vecAllMaps.AddToTail( szWithID );
+								m_vecIsWorkshopMap.AddToTail( true );
+								m_vecMapFileIDs.AddToTail( pItem->GetFileID() );
+								Warning( "LoadMapList: Added workshop map from manager root: %s\n", szWithID );
+							}
+						}
+					} while ( FindNextFileA( hFind, &findData ) );
+					FindClose( hFind );
+				}
+			}
+		}
+	}
+
+	// Search for Steam Workshop subscribed maps via UGC API
+	ISteamUGC* pUGC = GetSteamUGC();
+	if ( pUGC )
+	{
+		uint32 numSubscribed = pUGC->GetNumSubscribedItems();
+		if ( numSubscribed > 0 )
+		{
+			CUtlVector<PublishedFileId_t> items;
+			items.SetSize( numSubscribed );
+			pUGC->GetSubscribedItems( items.Base(), numSubscribed );
+
+			FOR_EACH_VEC( items, i )
+			{
+				PublishedFileId_t fileID = items[i];
+				char szInstallPath[MAX_PATH];
+				uint64 sizeOnDisk = 0;
+				uint32 timestamp = 0;
+
+				if ( pUGC->GetItemInstallInfo( fileID, &sizeOnDisk, szInstallPath, sizeof( szInstallPath ), &timestamp ) )
+				{
+					char szSearchPath[MAX_PATH];
+					WIN32_FIND_DATAA findData;
+					
+					// Check maps subfolder
+					V_snprintf( szSearchPath, sizeof( szSearchPath ), "%s\\maps\\*.bsp", szInstallPath );
+					HANDLE hFind = FindFirstFileA( szSearchPath, &findData );
+					if ( hFind != INVALID_HANDLE_VALUE )
+					{
+						do
+						{
+							if ( !( findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+							{
+								char szShortName[MAX_PATH] = { 0 };
+								V_snprintf( szShortName, sizeof( szShortName ), "workshop/%s", findData.cFileName );
+								V_StripExtension( szShortName, szShortName, sizeof( szShortName ) );
+								char szWithID[MAX_PATH];
+								V_snprintf( szWithID, sizeof( szWithID ), "%s.ugc%llu", szShortName, fileID );
+
+								if ( !MapExists( szWithID ) )
+								{
+									m_vecAllMaps.AddToTail( szWithID );
+									m_vecIsWorkshopMap.AddToTail( true );
+									m_vecMapFileIDs.AddToTail( fileID );
+									Warning( "LoadMapList: Added workshop map from UGC: %s\n", szWithID );
+								}
+							}
+						} while ( FindNextFileA( hFind, &findData ) );
+						FindClose( hFind );
+					}
+					
+					// Check root of install folder
+					V_snprintf( szSearchPath, sizeof( szSearchPath ), "%s\\*.bsp", szInstallPath );
+					hFind = FindFirstFileA( szSearchPath, &findData );
+					if ( hFind != INVALID_HANDLE_VALUE )
+					{
+						do
+						{
+							if ( !( findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY ) )
+							{
+								char szShortName[MAX_PATH] = { 0 };
+								V_snprintf( szShortName, sizeof( szShortName ), "workshop/%s", findData.cFileName );
+								V_StripExtension( szShortName, szShortName, sizeof( szShortName ) );
+								char szWithID[MAX_PATH];
+								V_snprintf( szWithID, sizeof( szWithID ), "%s.ugc%llu", szShortName, fileID );
+
+								if ( !MapExists( szWithID ) )
+								{
+									m_vecAllMaps.AddToTail( szWithID );
+									m_vecIsWorkshopMap.AddToTail( true );
+									m_vecMapFileIDs.AddToTail( fileID );
+									Warning( "LoadMapList: Added workshop map from UGC root: %s\n", szWithID );
+								}
+							}
+						} while ( FindNextFileA( hFind, &findData ) );
+						FindClose( hFind );
+					}
+				}
+			}
+		}
+	}
+#endif // _WIN32
+
+	// =====================================================
+	// SECOND: Scan regular map folders (skip workshop maps already found)
+	// =====================================================
+
+	FileFindHandle_t mapHandle;
+	const char* pMapFileName = filesystem->FindFirstEx( "maps/*.bsp", "GAME", &mapHandle );
+
+	while ( pMapFileName && pMapFileName[ 0 ] != '\0' )
+	{
+		if ( filesystem->FindIsDirectory( mapHandle ) )
+		{
+			pMapFileName = filesystem->FindNext( mapHandle );
+			continue;
+		}
+
+		if ( pMapFileName )
+		{
+			char szShortName[MAX_PATH] = { 0 };
+			V_strncpy( szShortName, pMapFileName, sizeof( szShortName ) );
+			V_StripExtension( szShortName, szShortName, sizeof( szShortName ) );
+
+			if ( !MapExists( szShortName ) )
+			{
+				m_vecAllMaps.AddToTail( szShortName );
+				m_vecIsWorkshopMap.AddToTail( false );
+				m_vecMapFileIDs.AddToTail( 0 );
+			}
+		}
+
+		pMapFileName = filesystem->FindNext( mapHandle );
+	}
+
+	filesystem->FindClose( mapHandle );
+
+	// Also search workshop folder via filesystem (for any we might have missed)
+	pMapFileName = filesystem->FindFirstEx( "maps/workshop/*.bsp", "GAME", &mapHandle );
+
+	while ( pMapFileName && pMapFileName[ 0 ] != '\0' )
+	{
+		if ( filesystem->FindIsDirectory( mapHandle ) )
+		{
+			pMapFileName = filesystem->FindNext( mapHandle );
+			continue;
+		}
+
+		if ( pMapFileName )
+		{
+			char szShortName[MAX_PATH] = { 0 };
+			V_snprintf( szShortName, sizeof( szShortName ), "workshop/%s", pMapFileName );
+			V_StripExtension( szShortName, szShortName, sizeof( szShortName ) );
+
+			if ( !MapExists( szShortName ) )
+			{
+				m_vecAllMaps.AddToTail( szShortName );
+				m_vecIsWorkshopMap.AddToTail( true );
+				PublishedFileId_t fileID = CFWorkshop()->GetMapIDFromName( szShortName );
+				m_vecMapFileIDs.AddToTail( fileID );
+			}
+		}
+
+		pMapFileName = filesystem->FindNext( mapHandle );
+	}
+
+	filesystem->FindClose( mapHandle );
+
+	// Count workshop maps
+	int nWorkshopCount = 0;
+	for ( int i = 0; i < m_vecIsWorkshopMap.Count(); i++ )
+	{
+		if ( m_vecIsWorkshopMap[i] )
+			nWorkshopCount++;
+	}
+	Warning( "LoadMapList: Loaded %d maps, %d are workshop maps\n", m_vecAllMaps.Count(), nWorkshopCount );
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Refreshes the map dropdown based on search/filter
+//-----------------------------------------------------------------------------
+void CTFCreateServerDialog::RefreshMapList()
+{
+	CScriptObject *pMapInfoObj = m_pDescription->FindObject( "cl_map" );
+	if ( !pMapInfoObj )
+		return;
+
+	// Get the search filter text
+	char szSearchFilter[256] = { 0 };
+	if ( m_pMapSearchEntry )
+	{
+		m_pMapSearchEntry->GetText( szSearchFilter, sizeof( szSearchFilter ) );
+		Q_strlower( szSearchFilter );
+	}
+
+	// Get the workshop filter state
+	bool bWorkshopOnly = false;
+	if ( m_pWorkshopFilterCheck )
+	{
+		bWorkshopOnly = m_pWorkshopFilterCheck->IsSelected();
+	}
+
+	Warning( "RefreshMapList: search='%s', workshopOnly=%d, totalMaps=%d\n", szSearchFilter, bWorkshopOnly, m_vecAllMaps.Count() );
+
+	// Remember the current selection
+	char szCurrentValue[256] = { 0 };
+	V_strncpy( szCurrentValue, pMapInfoObj->curValue, sizeof( szCurrentValue ) );
+
+	pMapInfoObj->RemoveAndDeleteAllItems();
+
+	// Add random map option
+	pMapInfoObj->AddItem( new CScriptListItem( "#GameUI_RandomMap", "-1" ) );
+
+	int iCount = m_vecAllMaps.Count();
+	for ( int k = 0; k < iCount; ++k )
+	{
+		const char *szMapName = m_vecAllMaps[k].Get();
+		bool bIsWorkshop = m_vecIsWorkshopMap[k];
+
+		// Filter by workshop if enabled
+		if ( bWorkshopOnly && !bIsWorkshop )
+			continue;
+
+		// Filter by search text
+		if ( szSearchFilter[0] != '\0' )
+		{
+			char szLowerMapName[MAX_PATH];
+			V_strncpy( szLowerMapName, szMapName, sizeof( szLowerMapName ) );
+			Q_strlower( szLowerMapName );
+
+			if ( V_strstr( szLowerMapName, szSearchFilter ) == NULL )
+				continue;
+		}
+
+		// Create display name - strip workshop/ prefix and .ugcXXX suffix for workshop maps
+		char szDisplayName[MAX_PATH];
+		V_strncpy( szDisplayName, szMapName, sizeof( szDisplayName ) );
+		
+		if ( bIsWorkshop )
+		{
+			// Strip "workshop/" prefix
+			const char* pszStart = szMapName;
+			if ( V_strnicmp( pszStart, "workshop/", 9 ) == 0 )
+			{
+				pszStart += 9;
+			}
+			V_strncpy( szDisplayName, pszStart, sizeof( szDisplayName ) );
+			
+			// Strip ".ugcXXX" suffix
+			char* pszUgc = V_strstr( szDisplayName, ".ugc" );
+			if ( pszUgc )
+			{
+				*pszUgc = '\0';
+			}
+		}
+
+		// Store the actual index k (not filtered index) so we can look up workshop info
+		pMapInfoObj->AddItem( new CScriptListItem( szDisplayName, CFmtStr( "%i", k ) ) );
+	}
+
+	// Update the ComboBox UI
+	mpcontrol_t *pList = m_pList;
+	while ( pList )
+	{
+		if ( pList->pScrObj == pMapInfoObj && pList->pControl )
+		{
+			ComboBox *pCombo = dynamic_cast<ComboBox*>( pList->pControl );
+			if ( pCombo )
+			{
+				pCombo->RemoveAll();
+
+				int iRow = 0;
+				int iCurrentRow = 0;
+				CScriptListItem *pListItem = pMapInfoObj->pListItems;
+				while ( pListItem )
+				{
+					if ( !Q_stricmp( pListItem->szValue, szCurrentValue ) )
+						iCurrentRow = iRow;
+
+					pCombo->AddItem( pListItem->szItemText, NULL );
+					pListItem = pListItem->pNext;
+					iRow++;
+				}
+
+				pCombo->ActivateItemByRow( iCurrentRow );
+			}
+			break;
+		}
+		pList = pList->next;
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Called when search text changes
+//-----------------------------------------------------------------------------
+void CTFCreateServerDialog::OnTextChanged( vgui::Panel *panel )
+{
+	Warning( "OnTextChanged called, panel=%p, m_pMapSearchEntry=%p\n", panel, m_pMapSearchEntry );
+	// Only refresh if this came from the map search entry
+	if ( panel == m_pMapSearchEntry )
+	{
+		Warning( "Refreshing map list from search\n" );
+		RefreshMapList();
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Called when workshop filter checkbox changes
+//-----------------------------------------------------------------------------
+void CTFCreateServerDialog::OnCheckButtonChecked( int state )
+{
+	Warning( "OnCheckButtonChecked called, state=%d, m_pWorkshopFilterCheck=%p\n", state, m_pWorkshopFilterCheck );
+	RefreshMapList();
 }
 
 //-----------------------------------------------------------------------------
@@ -3746,6 +4239,30 @@ void CTFCreateServerDialog::OnThink()
 	// This is not as effecient as I wanted it to be.
 	// Ideally I would want some event to hook onto, but I have no idea what i'm doing.
 
+	// Check if map filters have changed
+	if ( m_pMapSearchEntry || m_pWorkshopFilterCheck )
+	{
+		char szCurrentSearch[256] = { 0 };
+		bool bCurrentWorkshopOnly = false;
+
+		if ( m_pMapSearchEntry )
+		{
+			m_pMapSearchEntry->GetText( szCurrentSearch, sizeof( szCurrentSearch ) );
+		}
+		if ( m_pWorkshopFilterCheck )
+		{
+			bCurrentWorkshopOnly = m_pWorkshopFilterCheck->IsSelected();
+		}
+
+		// Check if either filter changed
+		if ( Q_strcmp( szCurrentSearch, m_szLastSearchFilter ) != 0 || bCurrentWorkshopOnly != m_bLastWorkshopOnly )
+		{
+			V_strncpy( m_szLastSearchFilter, szCurrentSearch, sizeof( m_szLastSearchFilter ) );
+			m_bLastWorkshopOnly = bCurrentWorkshopOnly;
+			RefreshMapList();
+		}
+	}
+
 	//Msg("Think Enter\n");
 	GatherCurrentValues(); // If this is not called, we would be reading old values.
 	if ( m_pDescription )
@@ -3758,24 +4275,110 @@ void CTFCreateServerDialog::OnThink()
 			ImagePanel *pImagePanel = (ImagePanel*) FindChildByName( "map_preview_img", true );
 			if (pImagePanel)
 			{
-				const char *szMapName;
+				const char *szMapName = NULL;
+				int nMapIndex = -1;
+				
+				// Find the current selection and its index
 				CScriptListItem *pItem = pMapInfoObj->pListItems;
-				if ( pItem )
+				int idx = 0;
+				while ( pItem )
 				{
-					while ( pItem )
+					if (!Q_stricmp(pItem->szValue, pMapInfoObj->curValue))
 					{
-						if (!Q_stricmp(pItem->szValue, pMapInfoObj->curValue))
+						szMapName = pItem->szItemText;
+						// The value is "-1" for random or the index as string
+						nMapIndex = atoi(pItem->szValue);
+						break;
+					}
+					pItem = pItem->pNext;
+					idx++;
+				}
+				
+				//Msg("Current Selection: %s, index=%d\n", szMapName, nMapIndex);
+				if( szMapName && nMapIndex >= 0 && nMapIndex < m_vecAllMaps.Count() )
+				{
+					bool bIsWorkshop = m_vecIsWorkshopMap[nMapIndex];
+					PublishedFileId_t fileID = m_vecMapFileIDs[nMapIndex];
+					
+					if ( bIsWorkshop && fileID != 0 )
+					{
+						// Workshop map - check if we need to request preview
+						if ( fileID != m_nLastDisplayedMapFileID )
 						{
-							szMapName = pItem->szItemText;
-							break;
+							m_nLastDisplayedMapFileID = fileID;
+							Warning( "OnThink: Workshop map changed to fileID=%llu\n", fileID );
+							
+							// Check if we have a cached preview image (try both jpg and png)
+							char szCachedJpg[MAX_PATH];
+							char szCachedPng[MAX_PATH];
+							char szCachedFullPath[MAX_PATH];
+							V_snprintf( szCachedJpg, sizeof( szCachedJpg ), "%s/download/previews/workshop_preview_%llu.jpg", engine->GetGameDirectory(), fileID );
+							V_snprintf( szCachedPng, sizeof( szCachedPng ), "%s/download/previews/workshop_preview_%llu.png", engine->GetGameDirectory(), fileID );
+							
+							const char* pCachedPath = NULL;
+							if ( g_pFullFileSystem->FileExists( szCachedJpg ) )
+							{
+								pCachedPath = szCachedJpg;
+							}
+							else if ( g_pFullFileSystem->FileExists( szCachedPng ) )
+							{
+								pCachedPath = szCachedPng;
+							}
+							
+							if ( pCachedPath )
+							{
+								// Load cached image as RGBA and create texture
+								int nWidth = 0, nHeight = 0;
+								ConversionErrorType result;
+								unsigned char* pRGBA = ImgUtl_ReadImageAsRGBA( pCachedPath, nWidth, nHeight, result );
+								
+								if ( result == CE_SUCCESS && pRGBA && nWidth > 0 && nHeight > 0 )
+								{
+									// Set texture on our preview image wrapper
+									m_pWorkshopPreviewImage->SetTextureRGBA( pRGBA, nWidth, nHeight );
+									
+									// Enable scaling and set our IImage on the panel
+									pImagePanel->SetShouldScaleImage( true );
+									pImagePanel->SetImage( m_pWorkshopPreviewImage );
+									free( pRGBA );
+								}
+								else
+								{
+									// Failed to load cached image
+									pImagePanel->SetImage( "maps/menu_thumb_default" );
+								}
+							}
+							else
+							{
+								// Request the preview from workshop manager
+								RequestWorkshopPreview( fileID );
+								pImagePanel->SetImage( "maps/menu_thumb_default" );
+							}
 						}
+					}
+					else
+					{
+						// Regular map - use standard thumbnail
+						m_nLastDisplayedMapFileID = 0;
+						pImagePanel->SetShouldScaleImage( false );
+						const char* szMapImage = CFmtStr("vgui/maps/menu_thumb_%s", szMapName);
 
-						pItem = pItem->pNext;
+						IMaterial *pMapMaterial = materials->FindMaterial( szMapImage, TEXTURE_GROUP_VGUI, false );
+						if( pMapMaterial && !IsErrorMaterial( pMapMaterial ) )
+						{
+							pImagePanel->SetImage(CFmtStr("maps/menu_thumb_%s", szMapName));
+						}
+						else
+						{ 
+							pImagePanel->SetImage("maps/menu_thumb_default");
+						}
 					}
 				}
-				//Msg("Current Selection: %s\n", name);
-				if( szMapName )
+				else if ( szMapName )
 				{
+					// Random map or invalid index - use default
+					m_nLastDisplayedMapFileID = 0;
+					pImagePanel->SetShouldScaleImage( false );
 					const char* szMapImage = CFmtStr("vgui/maps/menu_thumb_%s", szMapName);
 
 					IMaterial *pMapMaterial = materials->FindMaterial( szMapImage, TEXTURE_GROUP_VGUI, false );
@@ -3794,3 +4397,185 @@ void CTFCreateServerDialog::OnThink()
 	//Msg("Think Exit\n");
 	BaseClass::OnThink();
 }
+
+//-----------------------------------------------------------------------------
+// Purpose: Request workshop preview image for a given file ID
+//-----------------------------------------------------------------------------
+void CTFCreateServerDialog::RequestWorkshopPreview( PublishedFileId_t fileID )
+{
+	// Get the workshop item
+	CCFWorkshopItem* pItem = CFWorkshop()->GetItem( fileID );
+	if ( !pItem )
+	{
+		Warning( "RequestWorkshopPreview: Item %llu not found\n", fileID );
+		return;
+	}
+	
+	const char* pszURL = pItem->GetPreviewURL();
+	if ( !pszURL || pszURL[0] == '\0' )
+	{
+		Warning( "RequestWorkshopPreview: No preview URL for item %llu\n", fileID );
+		return;
+	}
+	
+	ISteamHTTP* pHTTP = SteamHTTP();
+	if ( !pHTTP )
+	{
+		Warning( "RequestWorkshopPreview: Steam HTTP not available\n" );
+		return;
+	}
+	
+	Warning( "RequestWorkshopPreview: Requesting preview for %llu from %s\n", fileID, pszURL );
+	
+	// Cancel any pending request
+	if ( m_hPendingPreviewRequest != INVALID_HTTPREQUEST_HANDLE )
+	{
+		pHTTP->ReleaseHTTPRequest( m_hPendingPreviewRequest );
+		m_hPendingPreviewRequest = INVALID_HTTPREQUEST_HANDLE;
+	}
+	
+	// Store which file ID we're requesting
+	m_nCurrentPreviewFileID = fileID;
+	
+	// Create the HTTP request
+	m_hPendingPreviewRequest = pHTTP->CreateHTTPRequest( k_EHTTPMethodGET, pszURL );
+	if ( m_hPendingPreviewRequest == INVALID_HTTPREQUEST_HANDLE )
+	{
+		Warning( "RequestWorkshopPreview: Failed to create HTTP request\n" );
+		return;
+	}
+	
+	// Set timeout
+	pHTTP->SetHTTPRequestNetworkActivityTimeout( m_hPendingPreviewRequest, 30 );
+	
+	// Send the request
+	SteamAPICall_t hCall;
+	if ( pHTTP->SendHTTPRequest( m_hPendingPreviewRequest, &hCall ) )
+	{
+		m_callbackHTTPPreview.Set( hCall, this, &CTFCreateServerDialog::Steam_OnPreviewImageReceived );
+	}
+	else
+	{
+		pHTTP->ReleaseHTTPRequest( m_hPendingPreviewRequest );
+		m_hPendingPreviewRequest = INVALID_HTTPREQUEST_HANDLE;
+		Warning( "RequestWorkshopPreview: Failed to send HTTP request\n" );
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Callback when workshop preview image is downloaded
+//-----------------------------------------------------------------------------
+void CTFCreateServerDialog::Steam_OnPreviewImageReceived( HTTPRequestCompleted_t* pResult, bool bError )
+{
+	ISteamHTTP* pHTTP = SteamHTTP();
+	if ( !pHTTP )
+		return;
+	
+	Warning( "Steam_OnPreviewImageReceived: request=%u, error=%d, success=%d, status=%d\n",
+		pResult->m_hRequest, bError ? 1 : 0, pResult->m_bRequestSuccessful ? 1 : 0, pResult->m_eStatusCode );
+	
+	// Check if this request is still valid
+	if ( pResult->m_hRequest != m_hPendingPreviewRequest )
+	{
+		pHTTP->ReleaseHTTPRequest( pResult->m_hRequest );
+		return;
+	}
+	
+	m_hPendingPreviewRequest = INVALID_HTTPREQUEST_HANDLE;
+	
+	if ( bError || !pResult->m_bRequestSuccessful || pResult->m_eStatusCode != k_EHTTPStatusCode200OK )
+	{
+		Warning( "Steam_OnPreviewImageReceived: Request failed with status %d\n", pResult->m_eStatusCode );
+		pHTTP->ReleaseHTTPRequest( pResult->m_hRequest );
+		return;
+	}
+	
+	// Get the body size
+	uint32 unBodySize = 0;
+	if ( !pHTTP->GetHTTPResponseBodySize( pResult->m_hRequest, &unBodySize ) || unBodySize == 0 )
+	{
+		Warning( "Steam_OnPreviewImageReceived: No response body\n" );
+		pHTTP->ReleaseHTTPRequest( pResult->m_hRequest );
+		return;
+	}
+	
+	// Allocate buffer for the image data
+	CUtlBuffer imageBuffer( 0, unBodySize, CUtlBuffer::READ_ONLY );
+	imageBuffer.EnsureCapacity( unBodySize );
+	
+	if ( !pHTTP->GetHTTPResponseBodyData( pResult->m_hRequest, (uint8*)imageBuffer.Base(), unBodySize ) )
+	{
+		Warning( "Steam_OnPreviewImageReceived: Failed to get response body\n" );
+		pHTTP->ReleaseHTTPRequest( pResult->m_hRequest );
+		return;
+	}
+	
+	imageBuffer.SeekPut( CUtlBuffer::SEEK_HEAD, unBodySize );
+	pHTTP->ReleaseHTTPRequest( pResult->m_hRequest );
+	
+	// Determine image format from header bytes
+	byte* pData = (byte*)imageBuffer.Base();
+	const char* pszExt = ".jpg";
+	
+	// Look for PNG signature (89 50 4E 47)
+	if ( unBodySize >= 8 && pData[0] == 0x89 && pData[1] == 'P' && pData[2] == 'N' && pData[3] == 'G' )
+	{
+		pszExt = ".png";
+	}
+	
+	// Save to cache file
+	char szCachePath[MAX_PATH];
+	V_snprintf( szCachePath, sizeof( szCachePath ), "%s/download/previews", engine->GetGameDirectory() );
+	g_pFullFileSystem->CreateDirHierarchy( szCachePath, "GAME" );
+	
+	char szFilePath[MAX_PATH];
+	V_snprintf( szFilePath, sizeof( szFilePath ), "%s/download/previews/workshop_preview_%llu%s", 
+		engine->GetGameDirectory(), m_nCurrentPreviewFileID, pszExt );
+	
+	FileHandle_t hFile = g_pFullFileSystem->Open( szFilePath, "wb", "GAME" );
+	if ( hFile )
+	{
+		g_pFullFileSystem->Write( pData, unBodySize, hFile );
+		g_pFullFileSystem->Close( hFile );
+		
+		Warning( "Steam_OnPreviewImageReceived: Saved preview to %s\n", szFilePath );
+		
+		// Update the image panel if this is still the selected map
+		if ( m_nCurrentPreviewFileID == m_nLastDisplayedMapFileID )
+		{
+			// Load the image as RGBA
+			int nWidth = 0, nHeight = 0;
+			ConversionErrorType result;
+			unsigned char* pRGBA = ImgUtl_ReadImageAsRGBA( szFilePath, nWidth, nHeight, result );
+			
+			if ( result == CE_SUCCESS && pRGBA && nWidth > 0 && nHeight > 0 )
+			{
+				Warning( "Steam_OnPreviewImageReceived: Loaded image %dx%d\n", nWidth, nHeight );
+				
+				// Set texture on our preview image wrapper
+				m_pWorkshopPreviewImage->SetTextureRGBA( pRGBA, nWidth, nHeight );
+				
+				// Set the texture on the image panel
+				ImagePanel *pImagePanel = (ImagePanel*) FindChildByName( "map_preview_img", true );
+				if ( pImagePanel )
+				{
+					// Enable scaling and set our IImage on the panel
+					pImagePanel->SetShouldScaleImage( true );
+					pImagePanel->SetImage( m_pWorkshopPreviewImage );
+				}
+				
+				// Free the RGBA data
+				free( pRGBA );
+			}
+			else
+			{
+				Warning( "Steam_OnPreviewImageReceived: Failed to decode image (error %d)\n", result );
+			}
+		}
+	}
+	else
+	{
+		Warning( "Steam_OnPreviewImageReceived: Failed to save preview file\n" );
+	}
+}
+

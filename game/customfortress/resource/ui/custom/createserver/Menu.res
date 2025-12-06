@@ -157,7 +157,7 @@
 				"border"		"MainMenuBGBorder"
 				
 				"xpos"			"4"
-				"ypos"			"220"
+				"ypos"			"270"
 				"wide"			"74"
 				"tall"			"60"
 			}	
@@ -170,7 +170,7 @@
 				"image"			"maps/menu_thumb_default"
 				
 				"xpos"			"12"
-				"ypos"			"228"
+				"ypos"			"278"
 				"wide"			"64"
 				"tall"			"43"
 			}

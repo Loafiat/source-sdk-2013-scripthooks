@@ -18,6 +18,7 @@
 #include <vgui_controls/Label.h>
 #include <vgui_controls/ListPanel.h>
 #include <vgui_controls/CheckButton.h>
+#include <vgui_controls/ImagePanel.h>
 #include "basemodel_panel.h"
 
 namespace vgui
@@ -33,19 +34,6 @@ struct WeaponReplacementEntry_t
 	bool bReplaceViewModel;
 	bool bReplaceWorldModel;
 };
-
-// Known weapon definition - uses c_models (unified client models)
-struct KnownWeaponDef_t
-{
-	const char* pszWeaponClass;
-	const char* pszDisplayName;
-	const char* pszModelPath;  // c_model path (unified view/world model)
-	int iClassIndex;
-	int iSlot;
-};
-
-extern const KnownWeaponDef_t g_KnownWeapons[];
-extern const int g_nKnownWeaponsCount;
 
 // Model preview panel
 class CWeaponModelPreviewPanel : public CBaseModelPanel
@@ -93,6 +81,7 @@ public:
 	virtual void OnCommand(const char* command) OVERRIDE;
 	virtual void OnThink() OVERRIDE;
 	virtual void OnKeyCodePressed(KeyCode code) OVERRIDE;
+	virtual void PostChildPaint() OVERRIDE;
 
 	void ShowPanel(bool bShow);
 
@@ -110,12 +99,17 @@ private:
 	void UpdateModelPreview();
 	void PopulateWeaponDropdown();
 	void FilterWeaponsByClass(int iClassIndex);
+	void FilterWeaponsBySlot(int iSlot);
+	void FilterWeaponsBySearch();
+	void UpdateWeaponIcon();
 	void GenerateWeaponMod();
 	bool CopyModelToTarget(const char* pszSourcePath, const char* pszTargetModelPath);
 	bool CopyModelFiles(const char* pszSourcePath, const char* pszDestPath);
 	bool GenerateWeaponScript(const char* pszOutputPath);
 	bool ValidateModelFile(const char* pszModelPath);
 	void SetStatus(const char* pszFormat, ...);
+
+	MESSAGE_FUNC_PARAMS(OnTextChanged, "TextChanged", data);
 
 	enum BrowseType_t { BROWSE_MODEL, BROWSE_PREVIEW, BROWSE_OUTPUT };
 	BrowseType_t m_eBrowseType;
@@ -126,8 +120,17 @@ private:
 	CWeaponModelPreviewPanel* m_pModelPreview;
 	Label* m_pModelInfoLabel;
 	CheckButton* m_pAutoRotateCheck;
+	
+	// Weapon selection controls
+	TextEntry* m_pWeaponSearchEntry;
+	ComboBox* m_pSlotFilterCombo;
 	ComboBox* m_pClassFilterCombo;
 	ComboBox* m_pWeaponCombo;
+	Panel* m_pWeaponIconPanel;
+	ImagePanel* m_pWeaponIconImage;
+	int m_iWeaponIconTextureID;
+	IMaterial* m_pWeaponIconMaterial;
+	
 	CheckButton* m_pReplaceViewModelCheck;
 	CheckButton* m_pReplaceWorldModelCheck;
 	Button* m_pAddReplacementButton;
@@ -144,11 +147,9 @@ private:
 	CUtlVector<WeaponReplacementEntry_t> m_vecReplacements;
 	CUtlString m_strCurrentModelPath;
 	CUtlString m_strOutputPath;
+	CUtlString m_strSearchFilter;
 	float m_flNextStatusClearTime;
 };
-
-const char* GetWeaponDisplayName(const char* pszWeaponClass);
-const KnownWeaponDef_t* FindWeaponDef(const char* pszWeaponClass);
 
 } // namespace vgui
 

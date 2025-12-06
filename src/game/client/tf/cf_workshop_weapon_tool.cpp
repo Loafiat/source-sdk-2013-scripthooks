@@ -18,6 +18,11 @@
 #include "ienginevgui.h"
 #include "filesystem.h"
 #include "tier1/KeyValues.h"
+#include "econ_item_system.h"
+#include "tf_item_schema.h"
+#include "tf_shareddefs.h"
+#include "VGuiMatSurface/IMatSystemSurface.h"
+#include "materialsystem/imaterialsystem.h"
 #ifdef _WIN32
 #include <direct.h>
 #else
@@ -31,64 +36,63 @@
 using namespace vgui;
 
 //-----------------------------------------------------------------------------
-// Known weapon definitions - simplified list
+// Helper functions for weapon lookups from item schema
 //-----------------------------------------------------------------------------
 namespace vgui
 {
 
-const KnownWeaponDef_t g_KnownWeapons[] = {
-	// Soldier
-	{ "tf_weapon_rocketlauncher", "Rocket Launcher", "models/weapons/c_models/c_rocketlauncher/c_rocketlauncher.mdl", 3, 0 },
-	{ "tf_weapon_shotgun_soldier", "Shotgun (Soldier)", "models/weapons/c_models/c_shotgun/c_shotgun.mdl", 3, 1 },
-	{ "tf_weapon_shovel", "Shovel", "models/weapons/c_models/c_shovel/c_shovel.mdl", 3, 2 },
-	// Scout
-	{ "tf_weapon_scattergun", "Scattergun", "models/weapons/c_models/c_scattergun/c_scattergun.mdl", 1, 0 },
-	{ "tf_weapon_pistol_scout", "Pistol (Scout)", "models/weapons/c_models/c_pistol/c_pistol.mdl", 1, 1 },
-	{ "tf_weapon_bat", "Bat", "models/weapons/c_models/c_bat/c_bat.mdl", 1, 2 },
-	// Pyro
-	{ "tf_weapon_flamethrower", "Flame Thrower", "models/weapons/c_models/c_flamethrower/c_flamethrower.mdl", 7, 0 },
-	{ "tf_weapon_shotgun_pyro", "Shotgun (Pyro)", "models/weapons/c_models/c_shotgun/c_shotgun.mdl", 7, 1 },
-	{ "tf_weapon_fireaxe", "Fire Axe", "models/weapons/c_models/c_fireaxe/c_fireaxe.mdl", 7, 2 },
-	// Demoman
-	{ "tf_weapon_grenadelauncher", "Grenade Launcher", "models/weapons/c_models/c_grenadelauncher/c_grenadelauncher.mdl", 4, 0 },
-	{ "tf_weapon_pipebomblauncher", "Stickybomb Launcher", "models/weapons/c_models/c_stickybomb_launcher/c_stickybomb_launcher.mdl", 4, 1 },
-	{ "tf_weapon_bottle", "Bottle", "models/weapons/c_models/c_bottle/c_bottle.mdl", 4, 2 },
-	// Heavy
-	{ "tf_weapon_minigun", "Minigun", "models/weapons/c_models/c_minigun/c_minigun.mdl", 6, 0 },
-	{ "tf_weapon_shotgun_hwg", "Shotgun (Heavy)", "models/weapons/c_models/c_shotgun/c_shotgun.mdl", 6, 1 },
-	{ "tf_weapon_fists", "Fists", "models/weapons/c_models/c_fists/c_fists.mdl", 6, 2 },
-	// Engineer
-	{ "tf_weapon_shotgun_primary", "Shotgun (Engineer)", "models/weapons/c_models/c_shotgun/c_shotgun.mdl", 9, 0 },
-	{ "tf_weapon_pistol", "Pistol (Engineer)", "models/weapons/c_models/c_pistol/c_pistol.mdl", 9, 1 },
-	{ "tf_weapon_wrench", "Wrench", "models/weapons/c_models/c_wrench/c_wrench.mdl", 9, 2 },
-	// Medic
-	{ "tf_weapon_syringegun_medic", "Syringe Gun", "models/weapons/c_models/c_syringegun/c_syringegun.mdl", 5, 0 },
-	{ "tf_weapon_medigun", "Medi Gun", "models/weapons/c_models/c_medigun/c_medigun.mdl", 5, 1 },
-	{ "tf_weapon_bonesaw", "Bonesaw", "models/weapons/c_models/c_bonesaw/c_bonesaw.mdl", 5, 2 },
-	// Sniper
-	{ "tf_weapon_sniperrifle", "Sniper Rifle", "models/weapons/c_models/c_sniperrifle/c_sniperrifle.mdl", 2, 0 },
-	{ "tf_weapon_smg", "SMG", "models/weapons/c_models/c_smg/c_smg.mdl", 2, 1 },
-	{ "tf_weapon_club", "Kukri", "models/weapons/c_models/c_machete/c_machete.mdl", 2, 2 },
-	// Spy
-	{ "tf_weapon_revolver", "Revolver", "models/weapons/c_models/c_revolver/c_revolver.mdl", 8, 0 },
-	{ "tf_weapon_knife", "Knife", "models/weapons/c_models/c_knife/c_knife.mdl", 8, 2 },
-};
-const int g_nKnownWeaponsCount = ARRAYSIZE(g_KnownWeapons);
-
-const char* GetWeaponDisplayName(const char* pszWeaponClass)
+// Check if a loadout slot is a weapon slot
+static bool IsWeaponLoadoutSlot(int iSlot)
 {
-	for (int i = 0; i < g_nKnownWeaponsCount; i++)
-		if (Q_stricmp(g_KnownWeapons[i].pszWeaponClass, pszWeaponClass) == 0)
-			return g_KnownWeapons[i].pszDisplayName;
-	return pszWeaponClass;
+	return iSlot == LOADOUT_POSITION_PRIMARY ||
+		   iSlot == LOADOUT_POSITION_SECONDARY ||
+		   iSlot == LOADOUT_POSITION_MELEE ||
+		   iSlot == LOADOUT_POSITION_BUILDING ||
+		   iSlot == LOADOUT_POSITION_PDA ||
+		   iSlot == LOADOUT_POSITION_PDA2;
 }
 
-const KnownWeaponDef_t* FindWeaponDef(const char* pszWeaponClass)
+// Get display name for an item definition (localized if available)
+static const char* GetItemDisplayName(const CTFItemDefinition* pItemDef)
 {
-	for (int i = 0; i < g_nKnownWeaponsCount; i++)
-		if (Q_stricmp(g_KnownWeapons[i].pszWeaponClass, pszWeaponClass) == 0)
-			return &g_KnownWeapons[i];
-	return NULL;
+	if (!pItemDef)
+		return "";
+	
+	const char* pszBaseName = pItemDef->GetItemBaseName();
+	if (pszBaseName && pszBaseName[0] == '#')
+	{
+		// Try to get localized name
+		const wchar_t* pwszLocalized = g_pVGuiLocalize->Find(pszBaseName);
+		if (pwszLocalized)
+		{
+			// Convert to UTF-8 for display
+			static char szLocalizedName[256];
+			g_pVGuiLocalize->ConvertUnicodeToANSI(pwszLocalized, szLocalizedName, sizeof(szLocalizedName));
+			return szLocalizedName;
+		}
+	}
+	
+	// Fall back to definition name
+	return pItemDef->GetDefinitionName();
+}
+
+// Get the best model path for a weapon (prefer c_model for view/world unified models)
+static const char* GetWeaponModelPath(const CTFItemDefinition* pItemDef)
+{
+	if (!pItemDef)
+		return "";
+	
+	// Try to get the base player display model first (c_model)
+	const char* pszModel = pItemDef->GetBasePlayerDisplayModel();
+	if (pszModel && pszModel[0])
+		return pszModel;
+	
+	// Try world display model
+	pszModel = pItemDef->GetWorldDisplayModel();
+	if (pszModel && pszModel[0])
+		return pszModel;
+	
+	return "";
 }
 
 } // namespace vgui
@@ -100,7 +104,7 @@ using namespace vgui;
 //-----------------------------------------------------------------------------
 CWeaponModelPreviewPanel::CWeaponModelPreviewPanel(Panel* parent, const char* panelName)
 	: BaseClass(parent, panelName)
-	, m_bAutoRotate(true)
+	, m_bAutoRotate(false)
 	, m_flAutoRotateSpeed(30.0f)
 {
 	SetLookAtCamera(true);
@@ -351,8 +355,14 @@ CCFWorkshopWeaponTool::CCFWorkshopWeaponTool(Panel* parent, const char* panelNam
 	, m_pModelPreview(NULL)
 	, m_pModelInfoLabel(NULL)
 	, m_pAutoRotateCheck(NULL)
+	, m_pWeaponSearchEntry(NULL)
+	, m_pSlotFilterCombo(NULL)
 	, m_pClassFilterCombo(NULL)
 	, m_pWeaponCombo(NULL)
+	, m_pWeaponIconPanel(NULL)
+	, m_pWeaponIconImage(NULL)
+	, m_iWeaponIconTextureID(-1)
+	, m_pWeaponIconMaterial(NULL)
 	, m_pReplaceViewModelCheck(NULL)
 	, m_pReplaceWorldModelCheck(NULL)
 	, m_pAddReplacementButton(NULL)
@@ -377,12 +387,14 @@ CCFWorkshopWeaponTool::CCFWorkshopWeaponTool(Panel* parent, const char* panelNam
     SetTitleBarVisible(false);
 	SetSize(1200, 900);
 	MoveToCenterOfScreen();
+	SetPostChildPaintEnabled(true);  // Enable PostChildPaint for weapon icon drawing
 }
 
 CCFWorkshopWeaponTool::~CCFWorkshopWeaponTool() {}
 
 void CCFWorkshopWeaponTool::ApplySchemeSettings(IScheme* pScheme)
 {
+	DevMsg("CCFWorkshopWeaponTool::ApplySchemeSettings - START\n");
 	BaseClass::ApplySchemeSettings(pScheme);
 	LoadControlSettings( RES_WEAPONTOOL );
 	
@@ -404,8 +416,27 @@ void CCFWorkshopWeaponTool::ApplySchemeSettings(IScheme* pScheme)
 	}
 	m_pModelInfoLabel = dynamic_cast<Label*>(FindChildByName("ModelInfoLabel"));
 	m_pAutoRotateCheck = dynamic_cast<CheckButton*>(FindChildByName("AutoRotateCheck"));
+	
+	// New weapon selection controls
+	m_pWeaponSearchEntry = dynamic_cast<TextEntry*>(FindChildByName("WeaponSearchEntry"));
+	m_pSlotFilterCombo = dynamic_cast<ComboBox*>(FindChildByName("SlotFilterCombo"));
 	m_pClassFilterCombo = dynamic_cast<ComboBox*>(FindChildByName("ClassFilterCombo"));
 	m_pWeaponCombo = dynamic_cast<ComboBox*>(FindChildByName("WeaponCombo"));
+	m_pWeaponIconPanel = FindChildByName("WeaponIconPanel");
+	
+	// Create the weapon icon image panel inside the icon container
+	if (m_pWeaponIconPanel && !m_pWeaponIconImage)
+	{
+		int w, h;
+		m_pWeaponIconPanel->GetSize(w, h);
+		
+		m_pWeaponIconImage = new ImagePanel(m_pWeaponIconPanel, "WeaponIcon");
+		m_pWeaponIconImage->SetBounds(0, 0, w, h);
+		m_pWeaponIconImage->SetShouldScaleImage(true);
+		m_pWeaponIconImage->SetScaleAmount(1.0f);
+		m_pWeaponIconImage->SetVisible(true);
+	}
+	
 	m_pReplaceViewModelCheck = dynamic_cast<CheckButton*>(FindChildByName("ReplaceViewModelCheck"));
 	m_pReplaceWorldModelCheck = dynamic_cast<CheckButton*>(FindChildByName("ReplaceWorldModelCheck"));
 	m_pAddReplacementButton = dynamic_cast<Button*>(FindChildByName("AddReplacementButton"));
@@ -418,6 +449,26 @@ void CCFWorkshopWeaponTool::ApplySchemeSettings(IScheme* pScheme)
 	m_pGenerateButton = dynamic_cast<Button*>(FindChildByName("GenerateButton"));
 	m_pCancelButton = dynamic_cast<Button*>(FindChildByName("CancelButton"));
 	m_pStatusLabel = dynamic_cast<Label*>(FindChildByName("StatusLabel"));
+	
+	// Setup search entry
+	if (m_pWeaponSearchEntry)
+	{
+		m_pWeaponSearchEntry->AddActionSignalTarget(this);
+		m_pWeaponSearchEntry->SendNewLine(true);
+	}
+	
+	// Setup slot filter combo
+	if (m_pSlotFilterCombo)
+	{
+		m_pSlotFilterCombo->AddItem("All Slots", NULL);
+		m_pSlotFilterCombo->AddItem("Primary", NULL);
+		m_pSlotFilterCombo->AddItem("Secondary", NULL);
+		m_pSlotFilterCombo->AddItem("Melee", NULL);
+		m_pSlotFilterCombo->AddItem("PDA", NULL);
+		m_pSlotFilterCombo->AddItem("Building", NULL);
+		m_pSlotFilterCombo->ActivateItemByRow(0);
+		m_pSlotFilterCombo->AddActionSignalTarget(this);
+	}
 	
 	// Setup class filter combo
 	if (m_pClassFilterCombo) {
@@ -457,22 +508,252 @@ void CCFWorkshopWeaponTool::PerformLayout()
 
 void CCFWorkshopWeaponTool::PopulateWeaponDropdown()
 {
-	if (!m_pWeaponCombo) return;
+	DevMsg("CCFWorkshopWeaponTool::PopulateWeaponDropdown - START\n");
+	if (!m_pWeaponCombo) 
+	{
+		DevMsg("CCFWorkshopWeaponTool::PopulateWeaponDropdown - m_pWeaponCombo is NULL!\n");
+		return;
+	}
 	m_pWeaponCombo->RemoveAll();
 	
 	int classFilter = m_pClassFilterCombo ? m_pClassFilterCombo->GetActiveItem() : 0;
+	int slotFilter = m_pSlotFilterCombo ? m_pSlotFilterCombo->GetActiveItem() : 0;
 	
-	for (int i = 0; i < g_nKnownWeaponsCount; i++) {
-		if (classFilter == 0 || g_KnownWeapons[i].iClassIndex == classFilter)
-			m_pWeaponCombo->AddItem(g_KnownWeapons[i].pszDisplayName, new KeyValues("data", "class", g_KnownWeapons[i].pszWeaponClass));
+	// Get search text
+	char szSearch[256] = {0};
+	if (m_pWeaponSearchEntry)
+	{
+		m_pWeaponSearchEntry->GetText(szSearch, sizeof(szSearch));
 	}
+	
+	// Get all item definitions from the schema
+	const CEconItemSchema::ItemDefinitionMap_t& mapItemDefs = ItemSystem()->GetItemSchema()->GetItemDefinitionMap();
+	
+	// Create a sorted list of weapons
+	struct WeaponEntry_t
+	{
+		item_definition_index_t nDefIndex;
+		CUtlString strDisplayName;
+		int iSlot;
+	};
+	CUtlVector<WeaponEntry_t> vecWeapons;
+	
+	// Track seen weapon names to filter duplicates
+	CUtlStringMap<bool> mapSeenNames;
+	
+	FOR_EACH_MAP_FAST(mapItemDefs, i)
+	{
+		CEconItemDefinition* pBaseDef = mapItemDefs[i];
+		if (!pBaseDef)
+			continue;
+		
+		// Cast to TF-specific item definition
+		const CTFItemDefinition* pItemDef = dynamic_cast<const CTFItemDefinition*>(pBaseDef);
+		if (!pItemDef)
+			continue;
+		
+		// Skip hidden items
+		if (pItemDef->IsHidden())
+			continue;
+		
+		// Skip items without a valid item class (not actually spawnable weapons)
+		const char* pszItemClass = pItemDef->GetItemClass();
+		if (!pszItemClass || !pszItemClass[0])
+			continue;
+		
+		// Skip non-weapon item classes
+		if (Q_strnicmp(pszItemClass, "tf_weapon", 9) != 0)
+			continue;
+		
+		// Get the loadout slot - if filtering by class, check that specific class
+		int iSlot;
+		if (classFilter > 0)
+		{
+			// Check if this weapon can be used by the selected class
+			if (!pItemDef->CanBeUsedByClass(classFilter))
+				continue;
+			
+			iSlot = pItemDef->GetLoadoutSlot(classFilter);
+		}
+		else
+		{
+			// For "All Classes", use default loadout slot
+			iSlot = pItemDef->GetDefaultLoadoutSlot();
+		}
+		
+		// Skip non-weapon slots (cosmetics, taunts, etc.)
+		if (!IsWeaponLoadoutSlot(iSlot))
+			continue;
+		
+		// Apply slot filter
+		// 0 = All, 1 = Primary, 2 = Secondary, 3 = Melee, 4 = PDA, 5 = Building
+		if (slotFilter > 0)
+		{
+			bool bMatchesSlot = false;
+			switch (slotFilter)
+			{
+				case 1: bMatchesSlot = (iSlot == LOADOUT_POSITION_PRIMARY); break;
+				case 2: bMatchesSlot = (iSlot == LOADOUT_POSITION_SECONDARY); break;
+				case 3: bMatchesSlot = (iSlot == LOADOUT_POSITION_MELEE); break;
+				case 4: bMatchesSlot = (iSlot == LOADOUT_POSITION_PDA || iSlot == LOADOUT_POSITION_PDA2); break;
+				case 5: bMatchesSlot = (iSlot == LOADOUT_POSITION_BUILDING); break;
+			}
+			if (!bMatchesSlot)
+				continue;
+		}
+		
+		// Skip items without a model
+		const char* pszModel = GetWeaponModelPath(pItemDef);
+		if (!pszModel || !pszModel[0])
+			continue;
+		
+		// Get display name early so we can filter by it
+		const char* pszDisplayName = GetItemDisplayName(pItemDef);
+		
+		// Skip duplicate weapon names (keep only the first occurrence)
+		if (mapSeenNames.Defined(pszDisplayName))
+			continue;
+		mapSeenNames[pszDisplayName] = true;
+		
+		// Apply search filter
+		if (szSearch[0] != '\0')
+		{
+			if (!V_stristr(pszDisplayName, szSearch) && !V_stristr(pItemDef->GetDefinitionName(), szSearch))
+				continue;
+		}
+		
+		WeaponEntry_t entry;
+		entry.nDefIndex = pItemDef->GetDefinitionIndex();
+		entry.strDisplayName = pszDisplayName;
+		entry.iSlot = iSlot;
+		vecWeapons.AddToTail(entry);
+	}
+	
+	// Sort weapons by slot then by name
+	vecWeapons.Sort([](const WeaponEntry_t* a, const WeaponEntry_t* b) -> int
+	{
+		if (a->iSlot != b->iSlot)
+			return a->iSlot - b->iSlot;
+		return Q_stricmp(a->strDisplayName.Get(), b->strDisplayName.Get());
+	});
+	
+	// Add sorted weapons to combo box
+	FOR_EACH_VEC(vecWeapons, j)
+	{
+		KeyValues* pData = new KeyValues("data");
+		pData->SetInt("defindex", vecWeapons[j].nDefIndex);
+		m_pWeaponCombo->AddItem(vecWeapons[j].strDisplayName.Get(), pData);
+	}
+	
 	if (m_pWeaponCombo->GetItemCount() > 0)
 		m_pWeaponCombo->ActivateItemByRow(0);
+	
+	// Update the weapon icon for current selection
+	DevMsg("CCFWorkshopWeaponTool::PopulateWeaponDropdown - Calling UpdateWeaponIcon, item count: %d\n", m_pWeaponCombo->GetItemCount());
+	UpdateWeaponIcon();
 }
 
 void CCFWorkshopWeaponTool::FilterWeaponsByClass(int iClassIndex)
 {
 	PopulateWeaponDropdown();
+}
+
+void CCFWorkshopWeaponTool::FilterWeaponsBySlot(int iSlot)
+{
+	PopulateWeaponDropdown();
+}
+
+void CCFWorkshopWeaponTool::FilterWeaponsBySearch()
+{
+	PopulateWeaponDropdown();
+}
+
+void CCFWorkshopWeaponTool::UpdateWeaponIcon()
+{
+	// Reset previous state
+	m_iWeaponIconTextureID = -1;
+	m_pWeaponIconMaterial = NULL;
+	
+	if (!m_pWeaponIconPanel || !m_pWeaponCombo)
+		return;
+	
+	// Get currently selected weapon
+	if (m_pWeaponCombo->GetActiveItem() < 0)
+		return;
+	
+	KeyValues* pData = m_pWeaponCombo->GetActiveItemUserData();
+	if (!pData)
+		return;
+	
+	item_definition_index_t nDefIndex = pData->GetInt("defindex", INVALID_ITEM_DEF_INDEX);
+	if (nDefIndex == INVALID_ITEM_DEF_INDEX)
+		return;
+	
+	const CTFItemDefinition* pItemDef = dynamic_cast<const CTFItemDefinition*>(
+		ItemSystem()->GetItemSchema()->GetItemDefinition(nDefIndex));
+	if (!pItemDef)
+		return;
+	
+	// Get the inventory image path
+	const char* pszInventoryImage = pItemDef->GetInventoryImage();
+	if (!pszInventoryImage || !pszInventoryImage[0])
+	{
+		DevMsg("CCFWorkshopWeaponTool: No inventory image for item %d\n", nDefIndex);
+		return;
+	}
+	
+	DevMsg("CCFWorkshopWeaponTool: Loading inventory image '%s'\n", pszInventoryImage);
+	
+	// Create texture ID if needed
+	m_iWeaponIconTextureID = vgui::surface()->CreateNewTextureID();
+	
+	// Try loading the large version first using DrawSetTextureFile
+	char szMaterialPath[MAX_PATH];
+	Q_snprintf(szMaterialPath, sizeof(szMaterialPath), "%s_large", pszInventoryImage);
+	
+	// DrawSetTextureFile takes path relative to materials/ folder (no extension)
+	vgui::surface()->DrawSetTextureFile(m_iWeaponIconTextureID, szMaterialPath, true, false);
+	
+	// Check if texture loaded by checking dimensions
+	int texW, texH;
+	vgui::surface()->DrawGetTextureSize(m_iWeaponIconTextureID, texW, texH);
+	
+	if (texW <= 0 || texH <= 0)
+	{
+		// Try without _large suffix
+		vgui::surface()->DrawSetTextureFile(m_iWeaponIconTextureID, pszInventoryImage, true, false);
+		vgui::surface()->DrawGetTextureSize(m_iWeaponIconTextureID, texW, texH);
+	}
+	
+	if (texW > 0 && texH > 0)
+	{
+		DevMsg("CCFWorkshopWeaponTool: Texture loaded, size %dx%d\n", texW, texH);
+	}
+	else
+	{
+		DevMsg("CCFWorkshopWeaponTool: Failed to load texture for '%s'\n", pszInventoryImage);
+		m_iWeaponIconTextureID = -1;
+	}
+	
+	// Force a repaint
+	Repaint();
+}
+
+void CCFWorkshopWeaponTool::OnTextChanged(KeyValues* data)
+{
+	Panel* pPanel = (Panel*)data->GetPtr("panel");
+	if (pPanel == m_pWeaponSearchEntry)
+	{
+		PopulateWeaponDropdown();
+	}
+	else if (pPanel == m_pSlotFilterCombo || pPanel == m_pClassFilterCombo)
+	{
+		PopulateWeaponDropdown();
+	}
+	else if (pPanel == m_pWeaponCombo)
+	{
+		UpdateWeaponIcon();
+	}
 }
 
 void CCFWorkshopWeaponTool::OnCommand(const char* command)
@@ -510,6 +791,63 @@ void CCFWorkshopWeaponTool::OnThink()
 	if (m_flNextStatusClearTime > 0 && gpGlobals->curtime > m_flNextStatusClearTime) {
 		if (m_pStatusLabel) m_pStatusLabel->SetText("");
 		m_flNextStatusClearTime = 0;
+	}
+}
+
+void CCFWorkshopWeaponTool::PostChildPaint()
+{
+	BaseClass::PostChildPaint();
+	
+	// Draw the weapon icon if we have one (after children so it's on top)
+	if (m_iWeaponIconTextureID != -1 && m_pWeaponIconPanel)
+	{
+		// Get the icon panel's position relative to this frame
+		int panelX, panelY;
+		m_pWeaponIconPanel->GetPos(panelX, panelY);
+		int panelW, panelH;
+		m_pWeaponIconPanel->GetSize(panelW, panelH);
+		
+		// Get the texture dimensions for aspect ratio calculation
+		int texW, texH;
+		vgui::surface()->DrawGetTextureSize(m_iWeaponIconTextureID, texW, texH);
+		
+		static bool bLoggedOnce = false;
+		if (!bLoggedOnce)
+		{
+			DevMsg("CCFWorkshopWeaponTool::PostChildPaint - Drawing at (%d,%d) size %dx%d, tex size %dx%d, texID %d\n", 
+				panelX, panelY, panelW, panelH, texW, texH, m_iWeaponIconTextureID);
+			bLoggedOnce = true;
+		}
+		
+		// Calculate aspect-correct size
+		int drawW = panelW;
+		int drawH = panelH;
+		int drawX = panelX;
+		int drawY = panelY;
+		
+		if (texW > 0 && texH > 0)
+		{
+			float texAspect = (float)texW / (float)texH;
+			float panelAspect = (float)panelW / (float)panelH;
+			
+			if (texAspect > panelAspect)
+			{
+				// Texture is wider, fit to width
+				drawH = (int)(panelW / texAspect);
+				drawY = panelY + (panelH - drawH) / 2;
+			}
+			else
+			{
+				// Texture is taller, fit to height
+				drawW = (int)(panelH * texAspect);
+				drawX = panelX + (panelW - drawW) / 2;
+			}
+		}
+		
+		// Draw the weapon icon texture
+		vgui::surface()->DrawSetTexture(m_iWeaponIconTextureID);
+		vgui::surface()->DrawSetColor(255, 255, 255, 255);
+		vgui::surface()->DrawTexturedRect(drawX, drawY, drawX + drawW, drawY + drawH);
 	}
 }
 
@@ -619,16 +957,32 @@ void CCFWorkshopWeaponTool::AddModelReplacement()
 	KeyValues* pData = m_pWeaponCombo->GetActiveItemUserData();
 	if (!pData) return;
 	
-	const char* pszWeaponClass = pData->GetString("class");
-	const KnownWeaponDef_t* pWeaponDef = FindWeaponDef(pszWeaponClass);
-	if (!pWeaponDef) return;
+	// Get item definition from schema using the stored definition index
+	item_definition_index_t nDefIndex = pData->GetInt("defindex", INVALID_ITEM_DEF_INDEX);
+	if (nDefIndex == INVALID_ITEM_DEF_INDEX)
+		return;
+	
+	const CTFItemDefinition* pItemDef = dynamic_cast<const CTFItemDefinition*>(
+		ItemSystem()->GetItemSchema()->GetItemDefinition(nDefIndex));
+	if (!pItemDef)
+		return;
+	
+	const char* pszWeaponClass = pItemDef->GetItemClass();
+	const char* pszModelPath = GetWeaponModelPath(pItemDef);
+	const char* pszDisplayName = GetItemDisplayName(pItemDef);
+	
+	if (!pszModelPath || !pszModelPath[0])
+	{
+		SetStatus("Error: Selected weapon has no model path!");
+		return;
+	}
 	
 	// Add to our data
 	WeaponReplacementEntry_t entry;
 	entry.strCustomModelPath = m_strCurrentModelPath;
 	entry.strTargetWeaponClass = pszWeaponClass;
-	entry.strTargetModelPath = pWeaponDef->pszModelPath;
-	entry.strDisplayName = pWeaponDef->pszDisplayName;
+	entry.strTargetModelPath = pszModelPath;
+	entry.strDisplayName = pszDisplayName;
 	entry.bReplaceViewModel = true;
 	entry.bReplaceWorldModel = true;
 	m_vecReplacements.AddToTail(entry);
@@ -636,14 +990,14 @@ void CCFWorkshopWeaponTool::AddModelReplacement()
 	// Add to list panel
 	if (m_pReplacementList) {
 		KeyValues* pKV = new KeyValues("item");
-		pKV->SetString("weapon", pWeaponDef->pszDisplayName);
+		pKV->SetString("weapon", pszDisplayName);
 		pKV->SetString("model", V_GetFileName(m_strCurrentModelPath.Get()));
 		pKV->SetString("type", "C_Model");
 		m_pReplacementList->AddItem(pKV, 0, false, false);
 		pKV->deleteThis();
 	}
 	
-	SetStatus("Added replacement: %s -> %s", pWeaponDef->pszDisplayName, V_GetFileName(m_strCurrentModelPath.Get()));
+	SetStatus("Added replacement: %s -> %s", pszDisplayName, V_GetFileName(m_strCurrentModelPath.Get()));
 }
 
 void CCFWorkshopWeaponTool::RemoveSelectedReplacement()
@@ -701,12 +1055,11 @@ void CCFWorkshopWeaponTool::GenerateWeaponMod()
 	for (int i = 0; i < m_vecReplacements.Count(); i++)
 	{
 		const WeaponReplacementEntry_t& entry = m_vecReplacements[i];
-		const KnownWeaponDef_t* pWeaponDef = FindWeaponDef(entry.strTargetWeaponClass.Get());
-		if (!pWeaponDef || !pWeaponDef->pszModelPath)
+		if (entry.strTargetModelPath.IsEmpty())
 			continue;
 		
-		// Copy to c_model path
-		if (CopyModelToTarget(entry.strCustomModelPath.Get(), pWeaponDef->pszModelPath))
+		// Copy to the target model path
+		if (CopyModelToTarget(entry.strCustomModelPath.Get(), entry.strTargetModelPath.Get()))
 			nSuccessCount++;
 	}
 	

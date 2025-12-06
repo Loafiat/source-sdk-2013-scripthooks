@@ -53,9 +53,21 @@
 			"label"		"#GameUI_Map"
 			"type"		"CATEGORY"
 		}
+		"cl_map_search"
+		{
+			"label"		"SEARCH MAPS"
+			"type"		"STRING"
+			"val"		""
+		}
+		"cl_map_workshop_only"
+		{
+			"label"		"WORKSHOP ONLY"
+			"type"		"BOOL"
+			"val"		"0"
+		}
 		"cl_map"
 		{
-			"label"		"#GameUI_Map"
+			"label"		"SELECT MAP"
 			"type"		"LIST"
 			"options"
 			{

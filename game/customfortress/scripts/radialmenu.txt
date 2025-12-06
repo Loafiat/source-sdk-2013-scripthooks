@@ -98,4 +98,53 @@
 			"text"		"#Voice_Menu_AskForBall"
 		}	
 	}
+	//--------------------------------------------------------------
+	"voice3"
+	{
+		"Center"
+		{
+			"command"	"done"
+			"text"		"Cancel"
+		}
+		"North"
+		{
+			"command"	"voicemenu 2 1"
+			"text"		"#Voice_Menu_BattleCry"
+		}
+		"NorthEast"
+		{
+			"command"	"voicemenu 2 2"
+			"text"		"#Voice_Menu_Cheers"
+		}	
+		"East"
+		{
+			"command"	"voicemenu 2 3"
+			"text"		"#Voice_Menu_Jeers"
+		}	
+		"SouthEast"
+		{
+			"command"	"voicemenu 2 4"
+			"text"		"#Voice_Menu_Positive"
+		}	
+		"South"
+		{
+			"command"	"voicemenu 2 5"
+			"text"		"#Voice_Menu_Negative"
+		}
+		"SouthWest"
+		{
+			"command"	"voicemenu 2 6"
+			"text"		"#Voice_Menu_NiceShot"
+		}
+		"West"
+		{
+			"command"	"voicemenu 2 7"
+			"text"		"#Voice_Menu_GoodJob"
+		}
+		"NorthWest"
+		{
+			"command"	"voicemenu 2 0"
+			"text"		"#Voice_Menu_Help"
+		}	
+	}
 }

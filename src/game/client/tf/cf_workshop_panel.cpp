@@ -686,7 +686,10 @@ CCFWorkshopBrowserPanel::CCFWorkshopBrowserPanel(Panel* parent, const char* pane
 	, m_eCurrentFilter(CF_WORKSHOP_TYPE_OTHER)
 	, m_bShowSubscribedOnly(true)
 	, m_flNextUpdateTime(0.0f)
+	, m_bFilterTagsDirty(true)
+	, m_nLastItemCount(0)
 {
+	m_szCurrentTagFilter[0] = '\0';
 	// Load TF2 client scheme for proper styling
 	vgui::HScheme scheme = vgui::scheme()->LoadSchemeFromFileEx(
 		enginevgui->GetPanel(PANEL_CLIENTDLL), 
@@ -751,8 +754,9 @@ void CCFWorkshopBrowserPanel::ApplySchemeSettings(IScheme* pScheme)
 	{
 		m_pFilterCombo->RemoveAll();
 		m_pFilterCombo->AddItem("All Items", NULL);
-		PopulateFilterTags();
 		m_pFilterCombo->ActivateItemByRow(0);
+		// Add action signal target so we get notified of selection changes
+		m_pFilterCombo->AddActionSignalTarget(this);
 	}
 	
 	// Setup list columns if found
@@ -797,6 +801,7 @@ void CCFWorkshopBrowserPanel::OnCommand(const char* command)
 		{
 			CFWorkshop()->RefreshSubscriptions();
 			CFWorkshop()->QueryRecentItems(35);
+			m_bFilterTagsDirty = true; // New query means tags may change
 		}
 		RefreshList();
 	}
@@ -872,6 +877,7 @@ void CCFWorkshopBrowserPanel::ShowPanel(bool bShow)
 		if (CFWorkshop() && !CFWorkshop()->IsQueryInProgress())
 		{
 			CFWorkshop()->QueryRecentItems(35);
+			m_bFilterTagsDirty = true; // New query means tags may change
 		}
 		RefreshList();
 	}
@@ -949,8 +955,17 @@ void CCFWorkshopBrowserPanel::RefreshList()
 	if (!CFWorkshop() || !m_pItemList)
 		return;
 	
-	// Update filter tags whenever we refresh the list
-	if (m_pFilterCombo)
+	// Check if item count has changed - if so, we need to rebuild filter tags
+	uint32 numItems = CFWorkshop()->GetBrowseableItemCount();
+	if (numItems != m_nLastItemCount)
+	{
+		m_bFilterTagsDirty = true;
+		m_nLastItemCount = numItems;
+	}
+	
+	// Only update filter tags when they're actually dirty (new items loaded, etc.)
+	// Don't rebuild the combo on every periodic refresh - this closes the dropdown
+	if (m_pFilterCombo && m_bFilterTagsDirty)
 	{
 		int currentSelection = m_pFilterCombo->GetActiveItem();
 		char szCurrentText[256] = {0};
@@ -983,18 +998,31 @@ void CCFWorkshopBrowserPanel::RefreshList()
 		{
 			m_pFilterCombo->ActivateItemByRow(0);
 		}
+		
+		m_bFilterTagsDirty = false; // Mark as clean after rebuilding
 	}
 		
 	m_pItemList->RemoveAll();
 	
-	// Get browseable items from query results
-	uint32 numItems = CFWorkshop()->GetBrowseableItemCount();
+	// Populate item list (numItems already retrieved above)
 	for (uint32 i = 0; i < numItems; i++)
 	{
 		CCFWorkshopItem* pItem = CFWorkshop()->GetBrowseableItem(i);
 		
 		if (pItem)
 		{
+			// Apply tag filter if one is set
+			if (m_szCurrentTagFilter[0] != '\0' && V_stricmp(m_szCurrentTagFilter, "All Items") != 0)
+			{
+				// Check if this item has the selected tag
+				const char* pszItemTags = pItem->GetTags();
+				if (!pszItemTags || !V_stristr(pszItemTags, m_szCurrentTagFilter))
+				{
+					// Item doesn't match filter, skip it
+					continue;
+				}
+			}
+			
 			KeyValues* kv = new KeyValues("item");
 			kv->SetString("name", pItem->GetTitle());
 			
@@ -1059,7 +1087,8 @@ void CCFWorkshopBrowserPanel::PopulateItemList()
 
 void CCFWorkshopBrowserPanel::ApplyFilters()
 {
-	// TODO: Implement filtering
+	// Filtering is now handled directly in RefreshList()
+	RefreshList();
 }
 
 void CCFWorkshopBrowserPanel::UpdateItemRow(int itemID, CCFWorkshopItem* pItem)
@@ -1113,6 +1142,27 @@ void CCFWorkshopBrowserPanel::ShowContextMenu(int itemID)
 	input()->GetCursorPos(x, y);
 	m_hContextMenu->SetPos(x, y);
 	m_hContextMenu->SetVisible(true);
+}
+
+void CCFWorkshopBrowserPanel::OnTextChanged(KeyValues* data)
+{
+	// Handle ComboBox selection changes
+	Panel* pPanel = reinterpret_cast<Panel*>(data->GetPtr("panel"));
+	if (!pPanel || pPanel != m_pFilterCombo)
+		return;
+	
+	if (!m_pFilterCombo)
+		return;
+	
+	// Get the newly selected filter text
+	int activeItem = m_pFilterCombo->GetActiveItem();
+	if (activeItem >= 0)
+	{
+		m_pFilterCombo->GetItemText(activeItem, m_szCurrentTagFilter, sizeof(m_szCurrentTagFilter));
+		
+		// Apply the new filter
+		ApplyFilters();
+	}
 }
 
 //-----------------------------------------------------------------------------

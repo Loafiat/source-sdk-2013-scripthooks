@@ -142,6 +142,9 @@ public:
 	
 	// Handle right-click context menu
 	MESSAGE_FUNC_INT(OnOpenContextMenu, "OpenContextMenu", itemID);
+	
+	// Handle ComboBox text changes (when user selects a filter)
+	MESSAGE_FUNC_PARAMS(OnTextChanged, "TextChanged", data);
 
 private:
 	// Context menu handling
@@ -167,6 +170,9 @@ private:
 	// Current filter
 	CFWorkshopItemType_t m_eCurrentFilter;
 	bool m_bShowSubscribedOnly;
+	char m_szCurrentTagFilter[256]; // Current tag filter string
+	bool m_bFilterTagsDirty; // True if filter tags need to be repopulated
+	uint32 m_nLastItemCount; // Track item count to detect when new items arrive
 	
 	// Update timer
 	float m_flNextUpdateTime;

@@ -28,7 +28,8 @@
 			// Custom content
 			game+mod+custom_mod    |gameinfo_path|custom/*
 
-			// Mod paths
+			// Mod paths - THIS MOD'S CONTENT (must be first for overrides!)
+			game+mod			|gameinfo_path|.
 			mod+mod_write		|gameinfo_path|.
 			game+game_write		|gameinfo_path|.
 			vgui+vgui_write		|gameinfo_path|.
@@ -36,24 +37,27 @@
 			
 			// Game binaries - mod first, then TF2
 			gamebin				|gameinfo_path|bin
-			gamebin				tf/bin
+			gamebin				|gameinfo_path|../tf/bin
 
-			// TF2 Dedicated Server VPKs (relative paths - same install directory)
-			game_lv				tf/tf2_lv.vpk
-			game+mod			tf/tf2_textures.vpk
-			game+mod			tf/tf2_sound_vo_english.vpk
-			game+mod			tf/tf2_sound_misc.vpk
-			game+mod+vgui		tf/tf2_misc.vpk
-			game				hl2/hl2_textures.vpk
-			game				hl2/hl2_sound_vo_english.vpk
-			game				hl2/hl2_sound_misc.vpk
-			game+vgui			hl2/hl2_misc.vpk
-			platform+vgui		platform/platform_misc.vpk
+			// TF2 Dedicated Server content
+			// Must reference the _dir.vpk files for VPK mounting
+			game+mod+vgui		|gameinfo_path|../tf/tf2_misc_dir.vpk
+			game+mod			|gameinfo_path|../tf/tf2_textures_dir.vpk
+			game+mod			|gameinfo_path|../tf/tf2_sound_misc_dir.vpk
+			game+mod			|gameinfo_path|../tf/tf2_sound_vo_english_dir.vpk
+			
+			// HL2 content for dedicated server
+			game+vgui			|gameinfo_path|../hl2/hl2_misc_dir.vpk
+			game				|gameinfo_path|../hl2/hl2_textures_dir.vpk
+			game				|gameinfo_path|../hl2/hl2_sound_misc_dir.vpk
+			
+			// Platform
+			platform+vgui		|gameinfo_path|../platform/platform_misc_dir.vpk
 
-			// TF2 loose files
-			game				tf
-			game				hl2
-			platform			platform
+			// Loose files (scripts, cfg, etc.) from TF2
+			game				|gameinfo_path|../tf
+			game				|gameinfo_path|../hl2
+			platform			|gameinfo_path|../platform
 
 			// Downloads
 			game+download		|gameinfo_path|download

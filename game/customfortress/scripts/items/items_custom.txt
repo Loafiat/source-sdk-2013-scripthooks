@@ -1007,6 +1007,26 @@
     		"effect_type"    "positive"
     		"stored_as_integer"    "0"
 		}
+		"4033"
+		{
+    		"name"    "kill combo fire rate boost"
+    		"attribute_class"    "kill_combo_fire_rate_boost"
+    		"description_string"    "#Attrib_KillComboFireRateBoost"
+    		"description_format"    "value_is_additive_percentage"
+    		"hidden"    "0"
+    		"effect_type"    "positive"
+    		"stored_as_integer"    "0"
+		}
+		"4034"
+		{
+    		"name"    "minigun can holster while spinning"
+    		"attribute_class"    "mod_minigun_can_holster_while_spinning"
+    		"description_string"    "#Attrib_MinigunHolsterSpunUp"
+			"description_format"	"value_is_additive"
+    		"hidden"    "0"
+    		"effect_type"    "positive"
+    		"stored_as_integer"    "0"
+		}
 	}
 	"items"
 	{
@@ -2875,6 +2895,86 @@
 			"mouse_pressed_sound"	"ui/item_light_gun_pickup.wav"
 			"drop_sound"		"ui/item_light_gun_drop.wav"
 			"xifier_class_remap"	"pistol_silenced"
+		}
+		"32024"
+		{
+			"name"									"Assault Cannon"
+			"prefab"								"valve"
+			"item_class"							"tf_weapon_minigun"
+			"craft_class"							"weapon"
+			"craft_material_type"					"weapon"
+			"show_in_armory"						"1"
+			"item_type_name"						"#TF_Weapon_Minigun"
+			"item_name"								"#TFCW_SVDL_AssaultCannon"
+			"item_description"						"#TFCW_SVDL_AssaultCannon_Desc"
+			"item_slot"								"primary"
+			"item_logname"							"assualtcannon"
+			"item_iconname"							"assualtcannon"
+			"image_inventory"						"backpack/workshop/weapons/c_models/c_assault_minigun/c_assault_minigun"
+			"image_inventory_size_w"				"128"
+			"image_inventory_size_h"				"82"
+			"model_player"							"models/workshop/weapons/c_models/c_assault_minigun/c_assault_minigun.mdl"
+			"inspect_panel_dist"					 "88"
+			"attach_to_hands"						"1"
+			"item_quality"							"community"
+			"moditem" 								"1"
+			"min_ilevel"							"30"
+			"max_ilevel"							"30"
+			"propername" 							"1"
+			"min_ilevel"							"5"
+			"max_ilevel"							"5"
+			"used_by_classes"
+			{
+				"heavy"	"1"
+			}
+			"static_attrs"
+			{
+				"min_viewmodel_offset"		"10 0 -9"
+			}
+			"attributes"
+			{
+				"is community contributed item"
+				{
+					"attribute_class"  "is_community_contributed_item"
+					"value"			   "11"
+				}
+				"kill combo fire rate boost"
+				{
+					"attribute_class"	"kill_combo_fire_rate_boost"
+					"value"	"0.15"
+				}
+				"maxammo primary increased"
+				{
+					"attribute_class"    "mult_maxammo_primary"
+					"value" "1.25"
+				}
+				"minigun can holster while spinning"
+				{
+					"attribute_class"	"mod_minigun_can_holster_while_spinning"
+					"value"	"1.0"
+				}
+				"damage penalty"
+				{
+					"attribute_class"	"mult_dmg"
+					"value"	"0.75"
+				}
+				"spread penalty"
+				{
+					"attribute_class" 	"mult_spread_scale"
+					"value" "1.15"
+				}
+			}
+			"visuals"
+			{
+				"sound_empty"	"Weapon_Minigun_Assault.ClipEmpty"
+				"sound_double_shot"	"Weapon_Minigun_Assault.Fire"
+				"sound_special1"	"Weapon_Minigun_Assault.WindUp"
+				"sound_special2"	"Weapon_Minigun_Assault.WindDown"
+				"sound_special3"	"Weapon_Minigun_Assault.Spin"
+				"sound_burst"	"Weapon_Minigun_Assault.FireCrit"
+			}
+			"mouse_pressed_sound"	"ui/item_heavy_gun_pickup.wav"
+			"drop_sound"		"ui/item_heavy_gun_drop.wav"
 		}
 		"34000" 
 		{

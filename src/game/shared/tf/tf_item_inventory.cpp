@@ -42,7 +42,6 @@
 #include "tf_gcmessages.h"
 #include "econ_item.h"
 #include "game_item_schema.h"
-#include "cf_custom_item_schema.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -254,22 +253,11 @@ void CTFInventoryManager::GenerateBaseItems( void )
 		pItem->Init( mapItems[it]->GetDefinitionIndex(), AE_USE_SCRIPT_VALUE, AE_USE_SCRIPT_VALUE, false );
 		m_pBaseLoadoutItems.AddToTail( pItem );
 	}
-	
-	// Load mod items if schema is initialized
-	if (GetItemSchema())
+	const CEconItemSchema::BaseItemDefinitionMap_t& mapItemsMod = GetItemSchema()->GetSoloItemDefinitionMap();
+	iStart = 0;
+	for (int it = iStart; it != mapItemsMod.InvalidIndex(); it = mapItemsMod.NextInorder(it))
 	{
-		const CEconItemSchema::BaseItemDefinitionMap_t& mapItemsMod = GetItemSchema()->GetSoloItemDefinitionMap();
-		if (mapItemsMod.Count() > 0)
-		{
-			iStart = 0;
-			for (int it = iStart; it != mapItemsMod.InvalidIndex(); it = mapItemsMod.NextInorder(it))
-			{
-				if (mapItemsMod.IsValidIndex(it))
-				{
-					AddModItem( mapItemsMod[it]->GetDefinitionIndex() );
-				}
-			}
-		}
+		AddModItem( mapItemsMod[it]->GetDefinitionIndex() );
 	}
 }
 
@@ -2320,33 +2308,7 @@ void ReloadClientItemSchema()
 	TFInventoryManager()->PostInit();
 	
 	// Reload custom workshop item schemas
-	// This will scan for loose files and write items_workshop.txt
-	bool bHasCustomItems = CFCustomItemSchema()->ReloadAllCustomSchemas();
-	
-	// If we have custom items, we need to reload the schema again
-	// to pick up items_workshop.txt that was just written
-	if (bHasCustomItems)
-	{
-		DevMsg("Custom items found, reloading schema again to merge items_workshop.txt...\n");
-		vecErrors.Purge();
-		bSuccess = ItemSystem()->GetItemSchema()->BInit("scripts/items/items_game.txt", "GAME", &vecErrors);
-		
-		if( !bSuccess )
-		{
-			FOR_EACH_VEC( vecErrors, nError )
-			{
-				Warning( "%s\n", vecErrors[nError].String() );
-			}
-			DevMsg("Failed to reload main item schema!\n");
-		}
-		else
-		{
-			// Regenerate base items and inventory again with the new schema
-			TFInventoryManager()->GenerateBaseItems();
-			TFInventoryManager()->PostInit();
-			CFCustomItemSchema()->CreateInventoryItemsForCustomSchema();
-		}
-	}
+	CFCustomItemSchema()->ReloadAllCustomSchemas();
 	
 	// Refresh attributes on all players without reconnecting
 	C_TFPlayer *pLocalPlayer = C_TFPlayer::GetLocalTFPlayer();

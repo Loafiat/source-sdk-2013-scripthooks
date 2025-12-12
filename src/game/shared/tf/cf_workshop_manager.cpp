@@ -6,7 +6,6 @@
 
 #include "cbase.h"
 #include "cf_workshop_manager.h"
-#include "cf_custom_item_schema.h"
 #include "workshop/ugc_utils.h"
 #include "filesystem.h"
 #include "tier2/fileutils.h"
@@ -368,19 +367,10 @@ void CCFWorkshopItem::Install()
 	// For now, just mark as installed
 	m_eState = CF_WORKSHOP_STATE_INSTALLED;
 	CFWorkshopMsg("Installed item %s to %s\n", m_strTitle.Get(), szInstallPath);
-	
-	// Try to load custom item schema if available
-	CFWorkshop()->LoadCustomItemSchemaForItem(m_nFileID);
 }
 
 void CCFWorkshopItem::Uninstall()
 {
-	// Unregister custom item schema if loaded
-	if (CFCustomItemSchema()->IsWorkshopItemLoaded(m_nFileID))
-	{
-		CFCustomItemSchema()->UnregisterWorkshopItem(m_nFileID);
-	}
-	
 	// TODO: Remove installed files
 	m_eState = CF_WORKSHOP_STATE_DOWNLOADED;
 	CFWorkshopMsg("Uninstalled item %llu\n", m_nFileID);
@@ -613,9 +603,6 @@ void CCFWorkshopManager::InitWorkshop()
 	
 	// Queue a refresh of subscriptions
 	m_bRefreshQueued = true;
-	
-	// Load custom item schemas after workshop initialization
-	LoadAllCustomItemSchemas();
 }
 
 void CCFWorkshopManager::RefreshSubscriptions()
@@ -693,9 +680,6 @@ void CCFWorkshopManager::RefreshSubscriptions()
 	
 	// Clear the recently unsubscribed list after a successful refresh
 	m_vecRecentlyUnsubscribed.RemoveAll();
-	
-	// Refresh custom item schemas to pick up any new items
-	RefreshCustomItemSchemas();
 }
 
 void CCFWorkshopManager::MountWorkshopItem(PublishedFileId_t fileID)
@@ -3898,17 +3882,8 @@ void CCFWorkshopManager::LoadCustomItemSchemaForItem(PublishedFileId_t fileID)
 		
 		CFWorkshopMsg("Loaded custom item schema for workshop item %llu\n", fileID);
 		
-		// Write merged schema file
-		CFCustomItemSchema()->WriteMergedCustomSchema();
-		
-#ifdef CLIENT_DLL
-		// Trigger item schema reload on client to pick up changes
-		if (GetItemSchema())
-		{
-			CFWorkshopMsg("Triggering client item schema reload after loading custom schema...\n");
-			ReloadClientItemSchema();
-		}
-#endif
+		// Trigger inventory update
+		CFCustomItemSchema()->CreateInventoryItemsForCustomSchema();
 	}
 }
 
@@ -3924,25 +3899,13 @@ void CCFWorkshopManager::RefreshCustomItemSchemas()
 		if (m_vecSubscribedItems.Find(fileID) == m_vecSubscribedItems.InvalidIndex())
 		{
 			// Item unsubscribed, unload schema
-			if (CFCustomItemSchema()->IsWorkshopItemLoaded(fileID))
-			{
-				CFCustomItemSchema()->UnregisterWorkshopItem(fileID);
-			}
+			CFCustomItemSchema()->UnregisterWorkshopItem(fileID);
 			m_vecCustomSchemaItems.Remove(i);
 		}
 	}
 	
 	// Reload all schemas
 	CFCustomItemSchema()->ReloadAllCustomSchemas();
-	
-#ifdef CLIENT_DLL
-	// Trigger item schema reload on client to pick up changes from items_workshop.txt
-	if (GetItemSchema())
-	{
-		CFWorkshopMsg("Triggering client item schema reload...\n");
-		ReloadClientItemSchema();
-	}
-#endif
 	
 	CFWorkshopMsg("Custom item schema refresh complete\n");
 }

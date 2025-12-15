@@ -97,8 +97,8 @@ bool CTFWeaponScripted::HasPrimaryAmmo( void )
 void CTFWeaponScripted::Precache( void )
 {
 	int iFlags = 0;
-	m_bitsWeaponFlags = iFlags;
 	CALL_ATTRIB_HOOK_INT( iFlags, vscript_weapon_flags );
+	m_bitsWeaponFlags = iFlags;
 
 	BaseClass::Precache();
 }
@@ -132,7 +132,7 @@ int	CTFWeaponScripted::GetDamageType( void ) const
 		return iDamageType;
 	}
 
-	BaseClass::GetDamageType();
+	return BaseClass::GetDamageType();
 }
 
 void CTFWeaponScripted::PrimaryAttack() 

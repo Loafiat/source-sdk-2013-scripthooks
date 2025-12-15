@@ -71,7 +71,7 @@ public:
 	void PrimaryAttack() OVERRIDE;
 	void SecondaryAttack() OVERRIDE;
 
-	virtual int		GetWeaponID( void ) const			{ return TF_WEAPON_NONE; }
+	virtual int		GetWeaponID( void ) const			{ return TF_WEAPON_SCRIPTED; }
 
 	//virtual bool	Deploy( void );
 	//virtual bool	Holster( CBaseCombatWeapon *pSwitchingTo );

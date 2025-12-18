@@ -3211,7 +3211,7 @@
 			"image_inventory"						"backpack/weapons/c_models/c_ubersaw/c_ubersaw"
 			"image_inventory_size_w"				"128"
 			"image_inventory_size_h"				"82"
-			"moditem" 								"1"
+			"moditem" 								"0"
 			"model_player"							"models/weapons/c_items/med_pack/c_defib.mdl"
 			"attach_to_hands"						"1"
 			"inspect_panel_dist"					"42"

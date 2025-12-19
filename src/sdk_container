@@ -29,7 +29,7 @@ function run_in_sniper() {
         image="registry.gitlab.steamos.cloud/steamrt/sniper/sdk:latest"
         echo "Running script inside $image"
         exec podman run \
-            --env "$check_env=$script_file" \
+            --env "SCRIPT_CHECKSUM=$check_env" \
             $ccache_args \
             --volume "$mod_base_dir:/my_mod:rw" \
             --workdir "/my_mod/$mod_src_dir_name" \
@@ -41,9 +41,9 @@ function run_in_sniper() {
     # At this point, we're already inside the container.
     # Verify we are running the right script (security check)
     our_sum=$(sha256sum -- "./$script_file" | cut -d " " -f 1)
-    their_sum="${!check_env}"
+    their_sum="${SCRIPT_CHECKSUM:-}"
 
-    if [[ "$our_sum" != "$their_sum" ]]; then
+    if [[ -n "$their_sum" && "$our_sum" != "$their_sum" ]]; then
         echo "Error: Script checksum mismatch. Aborting..."
         exit 1
     fi
